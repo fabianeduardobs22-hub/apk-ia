@@ -157,6 +157,14 @@ def _geo_estimate(ip: str) -> tuple[str, float, float]:
     return country, lat, lon
 
 
+def _listening_tcp_ports(services: list[dict[str, Any]]) -> set[int]:
+    return {
+        service["port"]
+        for service in services
+        if service.get("port", 0) > 0 and str(service.get("protocol", "")).startswith("tcp")
+    }
+
+
 def build_runtime_snapshot() -> dict[str, Any]:
     listening_raw = run_command(["ss", "-tulpenH"], timeout=8)
     active_raw = run_command(["ss", "-tunapH"], timeout=8)
@@ -196,8 +204,14 @@ def build_runtime_snapshot() -> dict[str, Any]:
         "4) decktroy connection-guard --mode analyze --duration 30",
     ]
 
+    listening_tcp_ports = _listening_tcp_ports(services)
     incoming_connections = [
-        c for c in active if c["state"] in {"ESTAB", "SYN-RECV", "SYN-SENT", "NEW"} and c["dst_port"] > 0
+        c
+        for c in active
+        if c["state"] in {"ESTAB", "SYN-RECV", "NEW"}
+        and c["dst_port"] > 0
+        and str(c["protocol"]).startswith("tcp")
+        and c["src_port"] in listening_tcp_ports
     ]
 
     service_versions = detect_service_versions()

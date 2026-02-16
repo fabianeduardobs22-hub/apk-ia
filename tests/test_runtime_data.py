@@ -66,6 +66,31 @@ def test_build_runtime_snapshot_exposure_count(monkeypatch) -> None:
     assert any("8443" in line for line in snap["exposure_lines"])
 
 
+def test_build_runtime_snapshot_incoming_connections_only_inbound(monkeypatch) -> None:
+    outputs = {
+        "-tulpenH": (
+            'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=5))\n'
+            'tcp LISTEN 0 128 0.0.0.0:8080 0.0.0.0:* users:(("python3",pid=7,fd=3))'
+        ),
+        "-tunapH": (
+            'tcp ESTAB 0 0 10.0.0.5:22 198.51.100.12:53211 users:(("sshd",pid=1,fd=8))\n'
+            'tcp ESTAB 0 0 10.0.0.5:49622 93.184.216.34:443 users:(("python3",pid=7,fd=9))\n'
+            'tcp SYN-SENT 0 1 10.0.0.5:49623 203.0.113.99:443 users:(("curl",pid=8,fd=4))'
+        ),
+    }
+
+    def _fake_run(command, timeout=5):
+        return outputs.get(command[-1], "")
+
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
+    snap = build_runtime_snapshot()
+
+    incoming = snap["incoming_connections"]
+    assert len(incoming) == 1
+    assert incoming[0]["src_port"] == 22
+    assert incoming[0]["dst_port"] == 53211
+
+
 def test_suggested_commands_are_defensive_only() -> None:
     conn = {"dst_ip": "203.0.113.15", "dst_port": 443, "protocol": "tcp"}
     cmds = suggested_connection_defense_commands(conn)
