@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QRadialGradient
+from PyQt6.QtGui import QColor, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -30,7 +30,6 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
-    QToolBar,
     QVBoxLayout,
     QWidget,
 )
@@ -278,20 +277,15 @@ class MainWindow(QMainWindow):
         )
 
     def _build_ui(self) -> None:
-        self._build_menu_bar()
-
         root = QWidget()
         root_layout = QVBoxLayout(root)
-
-        # 1) topbar
-        self._build_topbar()
 
         self.capture_status_banner = QLabel()
         self.capture_status_banner.setObjectName("captureStatusBanner")
         root_layout.addWidget(self.capture_status_banner)
         self._render_capture_status_banner()
 
-        # 2) sidebar · 3) workspace · 4) contextual panel
+        # 1) sidebar · 2) workspace
         self.shell_splitter = QSplitter(Qt.Orientation.Horizontal)
         root_layout.addWidget(self.shell_splitter, 1)
 
@@ -307,14 +301,11 @@ class MainWindow(QMainWindow):
         self.router.register_route("Incident Response", self._build_incident_response_page())
         self.router.register_route("Forensics Timeline", self._build_forensics_page())
 
-        self.context_tabs = self._build_contextual_panel()
-
         self.shell_splitter.addWidget(self.nav_list)
         self.shell_splitter.addWidget(self.page_stack)
-        self.shell_splitter.addWidget(self.context_tabs)
         self.shell_splitter.setStretchFactor(0, 0)
         self.shell_splitter.setStretchFactor(1, 1)
-        self.shell_splitter.setStretchFactor(2, 0)
+        self.shell_splitter.setSizes([320, 1500])
 
         self.setCentralWidget(root)
 
@@ -324,9 +315,10 @@ class MainWindow(QMainWindow):
         status.showMessage("Listo · Plataforma defensiva activa")
         self.setStatusBar(status)
 
-    def _build_topbar(self) -> None:
-        toolbar = QToolBar("Main")
-
+    def _build_action_panel(self) -> QWidget:
+        panel = QWidget()
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
         self.btn_back = QPushButton("←")
         self.btn_back.clicked.connect(self._go_back)
         self.btn_forward = QPushButton("→")
@@ -344,13 +336,29 @@ class MainWindow(QMainWindow):
         self.quick_action_button = QPushButton("Evento demo")
         self.quick_action_button.clicked.connect(self._simulate_demo_event)
 
-        toolbar.addWidget(QLabel("SOC View"))
-        toolbar.addWidget(self.btn_back)
-        toolbar.addWidget(self.btn_forward)
-        toolbar.addWidget(self.search_input)
-        toolbar.addWidget(self.analyst_preset)
-        toolbar.addWidget(self.quick_action_button)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+        preferences_button = QPushButton("Preferencias")
+        preferences_button.clicked.connect(self._show_view_options_popup)
+        export_session_button = QPushButton("Exportar resumen")
+        export_session_button.clicked.connect(self._show_export_summary_popup)
+        export_audit_button = QPushButton("Exportar auditoría")
+        export_audit_button.clicked.connect(self._export_audit_history)
+        quick_settings_button = QPushButton("Configuración rápida")
+        quick_settings_button.clicked.connect(self._show_runtime_settings_popup)
+        about_button = QPushButton("Acerca de")
+        about_button.clicked.connect(self._show_about_popup)
+
+        layout.addWidget(QLabel("SOC View"))
+        layout.addWidget(self.btn_back)
+        layout.addWidget(self.btn_forward)
+        layout.addWidget(self.search_input, 1)
+        layout.addWidget(self.analyst_preset)
+        layout.addWidget(self.quick_action_button)
+        layout.addWidget(preferences_button)
+        layout.addWidget(export_session_button)
+        layout.addWidget(export_audit_button)
+        layout.addWidget(quick_settings_button)
+        layout.addWidget(about_button)
+        return panel
 
 
     def _build_contextual_panel(self) -> QTabWidget:
@@ -395,6 +403,7 @@ class MainWindow(QMainWindow):
 
         center = QWidget()
         center_layout = QVBoxLayout(center)
+        center_layout.addWidget(self._build_action_panel())
 
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["Hora", "IP origen", "IP destino", "Puerto", "Protocolo", "Riesgo", "Resumen"])
@@ -425,6 +434,8 @@ class MainWindow(QMainWindow):
         self.ops_tabs.addTab(self._build_globe_tab(), "Globo 3D")
         self.ops_tabs.addTab(self._build_connections_tab(), "Conexiones")
         self.ops_tabs.addTab(self._build_services_tab(), "Servicios")
+        self.context_tabs = self._build_contextual_panel()
+        self.ops_tabs.addTab(self.context_tabs, "Contexto")
 
         self.soc_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.soc_splitter.addWidget(center)
@@ -472,35 +483,6 @@ class MainWindow(QMainWindow):
     def _build_forensics_page(self) -> QWidget:
         self.forensics_page = ForensicsTimelinePage()
         return self.forensics_page
-
-    def _build_menu_bar(self) -> None:
-        bar = self.menuBar()
-        menu_file = bar.addMenu("Archivo")
-        export_action = QAction("Exportar resumen de sesión", self)
-        export_action.triggered.connect(self._show_export_summary_popup)
-        export_audit_action = QAction("Exportar historial de auditoría", self)
-        export_audit_action.triggered.connect(self._export_audit_history)
-        menu_file.addAction(export_action)
-        menu_file.addAction(export_audit_action)
-        menu_file.addAction(QAction("Salir", self, triggered=self.close))
-
-        menu_view = bar.addMenu("Vista")
-        action_preferences = QAction("Editar preferencias de visualización", self)
-        action_preferences.triggered.connect(self._show_view_options_popup)
-        menu_view.addAction(action_preferences)
-
-        menu_tools = bar.addMenu("Herramientas")
-        settings_action = QAction("Configuración rápida", self)
-        settings_action.triggered.connect(self._show_runtime_settings_popup)
-        demo_action = QAction("Generar evento de demostración", self)
-        demo_action.triggered.connect(self._simulate_demo_event)
-        menu_tools.addAction(settings_action)
-        menu_tools.addAction(demo_action)
-
-        menu_help = bar.addMenu("Ayuda")
-        about_action = QAction("Acerca de SENTINEL X", self)
-        about_action.triggered.connect(self._show_about_popup)
-        menu_help.addAction(about_action)
 
     def _switch_to_route(self, route_id: str) -> None:
         if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
@@ -597,8 +579,8 @@ class MainWindow(QMainWindow):
 
         self.details_tabs.setCurrentIndex(int(self.settings.value("ui/last_workspace_tab", 0)))
 
-        shell_sizes = self.settings.value("ui/shell_splitter_sizes")
-        if isinstance(shell_sizes, list) and shell_sizes:
+        shell_sizes = self.settings.value("ui/main_splitter_sizes")
+        if isinstance(shell_sizes, list) and len(shell_sizes) == 2:
             self.shell_splitter.setSizes([int(size) for size in shell_sizes])
         soc_sizes = self.settings.value("ui/soc_splitter_sizes")
         if isinstance(soc_sizes, list) and soc_sizes:
@@ -610,7 +592,7 @@ class MainWindow(QMainWindow):
         self._update_router_buttons()
 
     def closeEvent(self, event: object) -> None:
-        self.settings.setValue("ui/shell_splitter_sizes", self.shell_splitter.sizes())
+        self.settings.setValue("ui/main_splitter_sizes", self.shell_splitter.sizes())
         self.settings.setValue("ui/soc_splitter_sizes", self.soc_splitter.sizes())
         super().closeEvent(event)
 
