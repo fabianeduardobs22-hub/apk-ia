@@ -1,0 +1,19 @@
+app_name: SENTINEL X DEFENSE SUITE
+log_level: INFO
+timezone: UTC
+database:
+  driver: sqlite
+  sqlite_path: data/sentinel_x.db
+  postgres_dsn: ""
+  encrypt_at_rest: false
+capture:
+  interface: any
+  bpf_filter: ""
+  queue_maxsize: 5000
+  replay_pcap: null
+detection:
+  max_connections_per_ip: 400
+  brute_force_window_s: 120
+  brute_force_threshold: 25
+  beaconing_interval_tolerance_s: 3
+  enable_ml_module: false
