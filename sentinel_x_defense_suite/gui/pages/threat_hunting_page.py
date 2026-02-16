@@ -13,6 +13,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from sentinel_x_defense_suite.gui.sections.hunting.models import HuntingFinding
+from sentinel_x_defense_suite.gui.sections.workflow import DrillDownWorkflowWidget, ModuleExportToolbar, export_records
 from sentinel_x_defense_suite.gui.widgets.ui_components import MetricTile, RiskCard, SeverityBadge
 
 
@@ -76,27 +78,40 @@ class ThreatHuntingPage(QWidget):
         self.queryChanged.emit(query)
 
     def set_results(self, rows: list[dict[str, str]]) -> None:
-        self.results_table.setRowCount(0)
-        top_severity = "low"
         rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
-        for row in rows:
-            idx = self.results_table.rowCount()
-            self.results_table.insertRow(idx)
-            values = [
-                row.get("time", "-"),
-                row.get("entity", "-"),
-                row.get("value", "-"),
-                row.get("severity", "LOW"),
-                row.get("detection", "n/a"),
-                row.get("badge", "observed"),
-            ]
-            for col, value in enumerate(values):
-                self.results_table.setItem(idx, col, QTableWidgetItem(value))
-            sev = str(row.get("severity", "LOW")).lower()
-            if rank.get(sev, 1) > rank.get(top_severity, 1):
-                top_severity = sev
+        top_severity = "low"
+
+        records: list[HuntingFinding] = []
+        for idx, row in enumerate(rows, start=1):
+            severity = str(row.get("severity", "LOW")).upper()
+            finding = HuntingFinding(
+                identifier=str(row.get("id") or f"hunt-{idx}"),
+                time=str(row.get("time", "-")),
+                entity=str(row.get("entity", "-")),
+                value=str(row.get("value", "-")),
+                severity=severity,
+                detection=str(row.get("detection", "n/a")),
+                evidence=[f"Badge: {row.get('badge', 'observed')}"] if row.get("badge") else [],
+                recommendation="Escalar al SOC si la severidad es HIGH o CRITICAL",
+            )
+            records.append(finding)
+
+            sev_key = severity.lower()
+            if rank.get(sev_key, 1) > rank.get(top_severity, 1):
+                top_severity = sev_key
+
+        self._records = records
+        self.workflow.set_records([record.to_drilldown() for record in self._records])
         self.matches_tile.set_value(str(len(rows)))
         self.severity_badge.setText(top_severity.upper())
         self.severity_badge.setProperty("severity", top_severity)
         self.severity_badge.style().unpolish(self.severity_badge)
         self.severity_badge.style().polish(self.severity_badge)
+
+    def _export(self, export_format: str) -> None:
+        output = export_records("threat_hunting", [record.to_drilldown() for record in self._records], export_format, self)
+        if output is not None:
+            self.status_badge.setText(f"Última exportación: {output.name}")
+
+    def _on_action_requested(self, action_id: str, identifier: str) -> None:
+        QMessageBox.information(self, "Acción defensiva", f"{action_id} solicitado para hallazgo {identifier}.")
