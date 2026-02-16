@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
@@ -596,6 +596,55 @@ class MainWindow(QMainWindow):
             "Plataforma Linux 100% defensiva para monitoreo, detección y forense de red."
         )
         msg.exec()
+
+    def _simulate_demo_event(self) -> None:
+        packet = PacketRecord(
+            timestamp=datetime.now(tz=timezone.utc),
+            src_ip="198.51.100.42",
+            dst_ip="10.0.0.15",
+            src_port=53211,
+            dst_port=443,
+            protocol="TCP",
+            length=256,
+            payload=b"GET /health HTTP/1.1\r\nHost: demo.internal\r\n\r\n",
+            metadata={"service": "https", "sensor": "demo-generator", "tag": "simulated"},
+        )
+        self.add_packet(
+            packet,
+            risk_level="HIGH",
+            risk_score=8.2,
+            country="US",
+            analysis_summary="Evento simulado: patrón de escaneo con huella HTTP sospechosa.",
+            recommendation="Bloquear IP en firewall temporalmente y validar trazas relacionadas.",
+        )
+        self.statusBar().showMessage("Evento de demostración agregado", 2500)
+
+    def _refresh_runtime_watch(self) -> None:
+        snapshot = build_runtime_snapshot()
+
+        services = snapshot.get("services", [])
+        if services:
+            service_lines = [
+                f"• {svc['protocol'].upper()} {svc['bind_ip']}:{svc['port']} svc={svc['service']} proc={svc['process']}"
+                for svc in services[:25]
+            ]
+            self.services_text.setPlainText("\n".join(service_lines))
+        else:
+            self.services_text.setPlainText("Sin datos de servicios expuestos")
+
+        active = snapshot.get("active_connections", [])
+        if active:
+            conn_lines = [
+                f"• {conn['state']} {conn['src_ip']}:{conn['src_port']} -> {conn['dst_ip']}:{conn['dst_port']} ({conn['service']})"
+                for conn in active[:25]
+            ]
+            self.connections_text.setPlainText("\n".join(conn_lines))
+        else:
+            self.connections_text.setPlainText("Sin conexiones activas")
+
+        self.globe_text.setPlainText("\n".join(snapshot.get("globe_lines", ["Conexiones geolocalizadas:\n• Sin datos"])))
+        self.exposure_text.setPlainText("\n".join(snapshot.get("exposure_lines", ["Sin resumen de exposición"])))
+        self.actions_text.setPlainText("\n".join(snapshot.get("actions", ["Sin recomendaciones disponibles"])))
 
 
     def _show_runtime_settings_popup(self) -> None:
