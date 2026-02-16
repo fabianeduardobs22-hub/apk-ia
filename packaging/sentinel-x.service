@@ -1,0 +1,18 @@
+[Unit]
+Description=SENTINEL X Defensive Monitor Service
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/sentinel-x
+ExecStart=/usr/bin/sentinel-x --config /etc/sentinel-x/sentinel_x.yaml run --max-packets 0
+Restart=on-failure
+User=nobody
+Group=nogroup
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
