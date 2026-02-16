@@ -39,6 +39,7 @@ from sentinel_x_defense_suite.gui.pages import ForensicsTimelinePage, IncidentRe
 from sentinel_x_defense_suite.gui.runtime_data import build_runtime_snapshot
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
+from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
 
 
 LOGGER = logging.getLogger(__name__)
@@ -420,7 +421,7 @@ class MainWindow(QMainWindow):
         selector = QComboBox()
         for theme in THEMES.values():
             selector.addItem(theme.name, theme.key)
-        selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "midnight"))))
+        selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "dark_premium"))))
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
 
@@ -437,7 +438,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _restore_persistent_state(self) -> None:
-        apply_theme(QApplication.instance() or QApplication([]), str(self.settings.value("ui/theme", "midnight")))
+        apply_theme(QApplication.instance() or QApplication([]), str(self.settings.value("ui/theme", "dark_premium")))
 
         self.search_input.setText(str(self.settings.value("filters/quick", "")))
         self.threat_hunting_page.query_input.setText(str(self.settings.value("filters/query", "")))
@@ -507,7 +508,7 @@ class MainWindow(QMainWindow):
                     "value": row.packet.src_ip,
                     "severity": row.risk_level,
                     "detection": row.analysis_summary,
-                    "badge": "triaged" if row.risk_level in {"HIGH", "CRITICAL"} else "watch",
+                    "badge": ICONS["triaged"] if row.risk_level in {"HIGH", "CRITICAL"} else ICONS["watch"],
                 }
             )
         self.threat_hunting_page.set_results(filtered)
@@ -747,10 +748,20 @@ class MainWindow(QMainWindow):
         form = QFormLayout(dialog)
         interface_input = QLineEdit(settings.capture.interface)
         form.addRow("Interfaz de captura", interface_input)
+
+        theme_selector = QComboBox()
+        for theme in THEMES.values():
+            theme_selector.addItem(theme.name, theme.key)
+        theme_selector.setCurrentIndex(max(0, theme_selector.findData(self.settings.value("ui/theme", "dark_premium"))))
+        form.addRow("Tema de interfaz", theme_selector)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
 
         def _save() -> None:
             settings.capture.interface = interface_input.text().strip() or "any"
+            selected_theme = str(theme_selector.currentData())
+            self.settings.setValue("ui/theme", selected_theme)
+            apply_theme(QApplication.instance() or QApplication([]), selected_theme)
             Path(cfg_path).write_text(
                 SettingsLoader._dumps({"app_name": settings.app_name, "capture": {"interface": settings.capture.interface}}),
                 encoding="utf-8",

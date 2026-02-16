@@ -4,7 +4,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -15,6 +14,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from sentinel_x_defense_suite.gui.widgets.ui_components import MetricTile, RiskCard, SeverityBadge
+
 
 class ThreatHuntingPage(QWidget):
     queryChanged = pyqtSignal(str)
@@ -23,7 +24,7 @@ class ThreatHuntingPage(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
 
-        filters_box = QGroupBox("Threat Hunting · Queries y filtros compuestos")
+        filters_box = RiskCard("Threat Hunting · Queries y filtros compuestos")
         filters_layout = QGridLayout(filters_box)
 
         self.query_input = QLineEdit()
@@ -50,6 +51,14 @@ class ThreatHuntingPage(QWidget):
 
         root.addWidget(self.results_table)
 
+        metrics_row = QHBoxLayout()
+        self.matches_tile = MetricTile("Resultados", "0")
+        self.severity_badge = SeverityBadge("low")
+        metrics_row.addWidget(self.matches_tile)
+        metrics_row.addWidget(self.severity_badge)
+        metrics_row.addStretch(1)
+        root.addLayout(metrics_row)
+
         status_row = QHBoxLayout()
         self.status_badge = QLabel("Estado: idle")
         self.status_badge.setObjectName("statusBadge")
@@ -67,6 +76,8 @@ class ThreatHuntingPage(QWidget):
 
     def set_results(self, rows: list[dict[str, str]]) -> None:
         self.results_table.setRowCount(0)
+        top_severity = "low"
+        rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
         for row in rows:
             idx = self.results_table.rowCount()
             self.results_table.insertRow(idx)
@@ -80,3 +91,11 @@ class ThreatHuntingPage(QWidget):
             ]
             for col, value in enumerate(values):
                 self.results_table.setItem(idx, col, QTableWidgetItem(value))
+            sev = str(row.get("severity", "LOW")).lower()
+            if rank.get(sev, 1) > rank.get(top_severity, 1):
+                top_severity = sev
+        self.matches_tile.set_value(str(len(rows)))
+        self.severity_badge.setText(top_severity.upper())
+        self.severity_badge.setProperty("severity", top_severity)
+        self.severity_badge.style().unpolish(self.severity_badge)
+        self.severity_badge.style().polish(self.severity_badge)

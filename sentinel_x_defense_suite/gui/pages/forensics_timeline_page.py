@@ -3,11 +3,16 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
 
+from sentinel_x_defense_suite.gui.widgets.ui_components import RiskCard, TimelineRow
+
 
 class ForensicsTimelinePage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
+
+        frame = RiskCard("Timeline forense")
+        frame_layout = QVBoxLayout(frame)
 
         self.timeline_table = QTableWidget(0, 6)
         self.timeline_table.setHorizontalHeaderLabels(
@@ -17,11 +22,10 @@ class ForensicsTimelinePage(QWidget):
         self.timeline_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.timeline_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.timeline_table.itemDoubleClicked.connect(self._open_drill_down)
-        layout.addWidget(self.timeline_table)
+        frame_layout.addWidget(self.timeline_table)
+        layout.addWidget(frame)
 
     def push_event(self, payload: dict[str, str]) -> None:
-        row = self.timeline_table.rowCount()
-        self.timeline_table.insertRow(row)
         values = [
             payload.get("time", "-"),
             payload.get("severity", "LOW"),
@@ -30,11 +34,13 @@ class ForensicsTimelinePage(QWidget):
             payload.get("summary", "-"),
             payload.get("state", "open"),
         ]
-        for col, value in enumerate(values):
-            item = QTableWidgetItem(value)
-            if col == 1 and value in {"HIGH", "CRITICAL"}:
+        TimelineRow.append(self.timeline_table, values)
+        row = self.timeline_table.rowCount() - 1
+        severity = values[1]
+        if severity in {"HIGH", "CRITICAL"}:
+            item = self.timeline_table.item(row, 1)
+            if item is not None:
                 item.setData(Qt.ItemDataRole.ToolTipRole, "Evento de alta prioridad")
-            self.timeline_table.setItem(row, col, item)
 
     def _open_drill_down(self, item: QTableWidgetItem) -> None:
         row = item.row()
