@@ -70,6 +70,8 @@ def main() -> None:
                 interface=settings.capture.interface,
                 bpf_filter=settings.capture.bpf_filter,
                 max_packets=args.max_packets,
+                plugin_allowlist_manifest_path=settings.plugins.allowlist_manifest_path,
+                dynamic_plugins_enabled=settings.plugins.dynamic_plugins_enabled,
             )
         )
     elif command == "gui":

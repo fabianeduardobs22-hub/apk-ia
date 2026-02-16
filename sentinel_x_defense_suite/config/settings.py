@@ -36,6 +36,13 @@ class DetectionSettings:
     enable_ml_module: bool = False
 
 
+
+
+@dataclass(slots=True)
+class PluginSettings:
+    dynamic_plugins_enabled: bool = True
+    allowlist_manifest_path: str = "plugins/allowlist.json"
+
 @dataclass(slots=True)
 class AppSettings:
     app_name: str = "SENTINEL X DEFENSE SUITE"
@@ -44,6 +51,7 @@ class AppSettings:
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     capture: CaptureSettings = field(default_factory=CaptureSettings)
     detection: DetectionSettings = field(default_factory=DetectionSettings)
+    plugins: PluginSettings = field(default_factory=PluginSettings)
 
 
 class SettingsLoader:
@@ -71,6 +79,7 @@ class SettingsLoader:
         db = DatabaseSettings(**content.get("database", {}))
         capture = CaptureSettings(**content.get("capture", {}))
         detection = DetectionSettings(**content.get("detection", {}))
+        plugins = PluginSettings(**content.get("plugins", {}))
 
         return AppSettings(
             app_name=content.get("app_name", "SENTINEL X DEFENSE SUITE"),
@@ -79,6 +88,7 @@ class SettingsLoader:
             database=db,
             capture=capture,
             detection=detection,
+            plugins=plugins,
         )
 
     @staticmethod
@@ -91,5 +101,6 @@ class SettingsLoader:
             "database": asdict(defaults.database),
             "capture": asdict(defaults.capture),
             "detection": asdict(defaults.detection),
+            "plugins": asdict(defaults.plugins),
         }
         Path(path).write_text(SettingsLoader._dumps(payload), encoding="utf-8")

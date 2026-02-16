@@ -30,12 +30,24 @@ class SentinelOrchestrator:
         self.recent_alerts = deque(maxlen=300)
 
     @classmethod
-    def from_defaults(cls, db_path: str, plugin_dir: str, interface: str, bpf_filter: str) -> "SentinelOrchestrator":
+    def from_defaults(
+        cls,
+        db_path: str,
+        plugin_dir: str,
+        interface: str,
+        bpf_filter: str,
+        plugin_allowlist_manifest_path: str | None = None,
+        dynamic_plugins_enabled: bool = True,
+    ) -> "SentinelOrchestrator":
         capture = PacketCaptureEngine(interface=interface, bpf_filter=bpf_filter)
         processor = PacketProcessor()
         detector = HybridDetectionEngine(DetectionConfig())
         forensics = ForensicsRepository(db_path=db_path)
-        plugins = PluginManager(plugins_dir=plugin_dir)
+        plugins = PluginManager(
+            plugins_dir=plugin_dir,
+            allowlist_manifest_path=plugin_allowlist_manifest_path,
+            dynamic_plugins_enabled=dynamic_plugins_enabled,
+        )
         plugins.load()
         return cls(capture, processor, detector, forensics, plugins)
 
@@ -55,6 +67,21 @@ class SentinelOrchestrator:
                 break
 
 
-async def run_default(db_path: str = "data/sentinel_x.db", plugin_dir: str = "plugins", interface: str = "any", bpf_filter: str = "", max_packets: int | None = None) -> None:
-    orchestrator = SentinelOrchestrator.from_defaults(db_path, plugin_dir, interface, bpf_filter)
+async def run_default(
+    db_path: str = "data/sentinel_x.db",
+    plugin_dir: str = "plugins",
+    interface: str = "any",
+    bpf_filter: str = "",
+    max_packets: int | None = None,
+    plugin_allowlist_manifest_path: str | None = None,
+    dynamic_plugins_enabled: bool = True,
+) -> None:
+    orchestrator = SentinelOrchestrator.from_defaults(
+        db_path,
+        plugin_dir,
+        interface,
+        bpf_filter,
+        plugin_allowlist_manifest_path=plugin_allowlist_manifest_path,
+        dynamic_plugins_enabled=dynamic_plugins_enabled,
+    )
     await orchestrator.run(max_packets=max_packets)
