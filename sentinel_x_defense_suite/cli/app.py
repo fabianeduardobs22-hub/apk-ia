@@ -67,17 +67,15 @@ def main() -> None:
             except PrivilegeError as exc:
                 parser.error(str(exc))
 
-        try:
-            asyncio.run(
-                run_default(
-                    db_path=settings.database.sqlite_path,
-                    plugin_dir="plugins",
-                    interface=settings.capture.interface,
-                    bpf_filter=settings.capture.bpf_filter,
-                    replay_pcap=settings.capture.replay_pcap,
-                    simulate=simulate,
-                    max_packets=args.max_packets,
-                )
+        asyncio.run(
+            run_default(
+                db_path=settings.database.sqlite_path,
+                plugin_dir="plugins",
+                interface=settings.capture.interface,
+                bpf_filter=settings.capture.bpf_filter,
+                max_packets=args.max_packets,
+                plugin_allowlist_manifest_path=settings.plugins.allowlist_manifest_path,
+                dynamic_plugins_enabled=settings.plugins.dynamic_plugins_enabled,
             )
         except CaptureRuntimeError as exc:
             parser.error(str(exc))

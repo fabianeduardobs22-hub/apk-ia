@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import logging
+import os
 import platform
 import re
 import socket
 import subprocess
 import time
 from collections import Counter
+from functools import lru_cache
 from typing import Any
 
 
@@ -178,6 +180,7 @@ def _is_public_ip(ip: str) -> bool:
 
 
 def _geo_estimate(ip: str) -> tuple[str, float, float]:
+    """Return a deterministic pseudo-location for simulation mode only."""
     h = hashlib.sha256(ip.encode("utf-8")).hexdigest()
     a = int(h[:8], 16)
     b = int(h[8:16], 16)
@@ -186,6 +189,77 @@ def _geo_estimate(ip: str) -> tuple[str, float, float]:
     lat = round((a / 0xFFFFFFFF) * 180.0 - 90.0, 3)
     lon = round((b / 0xFFFFFFFF) * 360.0 - 180.0, 3)
     return country, lat, lon
+
+
+@lru_cache(maxsize=1)
+def _get_geoip_reader() -> Any | None:
+    db_candidates = [
+        os.getenv("SENTINEL_GEOIP_DB", ""),
+        "/usr/share/GeoIP/GeoLite2-City.mmdb",
+        "/usr/local/share/GeoIP/GeoLite2-City.mmdb",
+    ]
+    db_candidates = [path for path in db_candidates if path]
+    if not db_candidates:
+        return None
+    try:
+        from geoip2.database import Reader  # type: ignore[import-not-found]
+    except Exception as exc:
+        LOGGER.debug("GeoIP reader unavailable: %s", exc)
+        return None
+
+    for path in db_candidates:
+        if not os.path.exists(path):
+            continue
+        try:
+            return Reader(path)
+        except Exception as exc:
+            LOGGER.warning("GeoIP DB open failed path=%s err=%s", path, exc)
+    return None
+
+
+def _geoip_lookup_offline(ip: str) -> tuple[str, float, float, float] | None:
+    reader = _get_geoip_reader()
+    if reader is None:
+        return None
+    try:
+        record = reader.city(ip)
+    except Exception as exc:
+        LOGGER.debug("GeoIP lookup failed ip=%s err=%s", ip, exc)
+        return None
+
+    country = (record.country.iso_code or "UN").upper()
+    lat = record.location.latitude
+    lon = record.location.longitude
+    if lat is None or lon is None:
+        return None
+
+    confidence = 0.55
+    if getattr(record.location, "accuracy_radius", None):
+        radius = float(record.location.accuracy_radius)
+        confidence = max(0.35, min(0.95, 1.0 - (radius / 250.0)))
+    return country, round(float(lat), 3), round(float(lon), 3), round(confidence, 3)
+
+
+def _resolve_geolocation(ip: str) -> dict[str, Any]:
+    geoip_data = _geoip_lookup_offline(ip)
+    if geoip_data is not None:
+        country, lat, lon, confidence = geoip_data
+        return {
+            "country": country,
+            "lat": lat,
+            "lon": lon,
+            "geo_source": "geoip",
+            "confidence": confidence,
+        }
+
+    country, lat, lon = _geo_estimate(ip)
+    return {
+        "country": country,
+        "lat": lat,
+        "lon": lon,
+        "geo_source": "estimated",
+        "confidence": 0.2,
+    }
 
 
 def build_runtime_snapshot(include_service_versions: bool = True) -> dict[str, Any]:
@@ -199,13 +273,27 @@ def build_runtime_snapshot(include_service_versions: bool = True) -> dict[str, A
     remote_hits = [c for c in active if _is_public_ip(c["dst_ip"]) and c["state"] in {"ESTAB", "SYN-RECV", "SYN-SENT"}]
     by_ip = Counter(c["dst_ip"] for c in remote_hits)
 
-    globe_lines = ["Mapa global de conexiones sospechosas (estimado):"]
+    globe_lines = ["Mapa global de conexiones sospechosas:"]
     globe_points: list[dict[str, Any]] = []
     for ip, count in by_ip.most_common(20):
-        country, lat, lon = _geo_estimate(ip)
+        geo = _resolve_geolocation(ip)
         severity = 1 if count <= 1 else 2 if count <= 3 else 3 if count <= 6 else 4
-        globe_lines.append(f"• {ip} ({country}) lat={lat} lon={lon} eventos={count}")
-        globe_points.append({"ip": ip, "country": country, "lat": lat, "lon": lon, "events": count, "severity": severity})
+        globe_lines.append(
+            f"• {ip} ({geo['country']}) lat={geo['lat']} lon={geo['lon']} eventos={count} "
+            f"fuente={geo['geo_source']} confianza={geo['confidence']}"
+        )
+        globe_points.append(
+            {
+                "ip": ip,
+                "country": geo["country"],
+                "lat": geo["lat"],
+                "lon": geo["lon"],
+                "events": count,
+                "severity": severity,
+                "geo_source": geo["geo_source"],
+                "confidence": geo["confidence"],
+            }
+        )
     if len(globe_lines) == 1:
         globe_lines.append("• Sin eventos remotos sospechosos detectados")
 

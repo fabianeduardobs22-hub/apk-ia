@@ -17,3 +17,6 @@ detection:
   brute_force_threshold: 25
   beaconing_interval_tolerance_s: 3
   enable_ml_module: false
+plugins:
+  dynamic_plugins_enabled: true
+  allowlist_manifest_path: plugins/allowlist.json

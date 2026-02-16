@@ -1,4 +1,5 @@
 from sentinel_x_defense_suite.gui.runtime_data import (
+    _resolve_geolocation,
     build_incremental_runtime_snapshot,
     build_runtime_snapshot,
     detect_service_versions,
@@ -45,11 +46,20 @@ def test_build_runtime_snapshot_uses_commands(monkeypatch) -> None:
         return outputs.get(key, "")
 
     monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data._resolve_geolocation", lambda _ip: {
+        "country": "US",
+        "lat": 1.0,
+        "lon": 2.0,
+        "geo_source": "estimated",
+        "confidence": 0.2,
+    })
     snap = build_runtime_snapshot()
     assert snap["services"][0]["port"] == 22
     assert snap["services"][0]["service"] == "ssh"
     assert snap["remote_suspicious"][0]["dst_ip"] == "8.8.8.8"
     assert snap["globe_points"]
+    assert snap["globe_points"][0]["geo_source"] == "estimated"
+    assert snap["globe_points"][0]["confidence"] == 0.2
 
 
 def test_build_runtime_snapshot_exposure_count(monkeypatch) -> None:
@@ -65,6 +75,30 @@ def test_build_runtime_snapshot_exposure_count(monkeypatch) -> None:
     snap = build_runtime_snapshot()
     assert snap["public_service_count"] == 1
     assert any("8443" in line for line in snap["exposure_lines"])
+
+
+def test_resolve_geolocation_estimated_mode(monkeypatch) -> None:
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data._geoip_lookup_offline", lambda _ip: None)
+    geo = _resolve_geolocation("8.8.8.8")
+    assert geo["geo_source"] == "estimated"
+    assert geo["confidence"] == 0.2
+    assert isinstance(geo["lat"], float)
+    assert isinstance(geo["lon"], float)
+
+
+def test_resolve_geolocation_geoip_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "sentinel_x_defense_suite.gui.runtime_data._geoip_lookup_offline",
+        lambda _ip: ("FR", 48.856, 2.352, 0.91),
+    )
+    geo = _resolve_geolocation("1.1.1.1")
+    assert geo == {
+        "country": "FR",
+        "lat": 48.856,
+        "lon": 2.352,
+        "geo_source": "geoip",
+        "confidence": 0.91,
+    }
 
 
 def test_suggested_commands_are_defensive_only() -> None:

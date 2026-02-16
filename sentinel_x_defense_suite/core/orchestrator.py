@@ -35,14 +35,18 @@ class SentinelOrchestrator:
         plugin_dir: str,
         interface: str,
         bpf_filter: str,
-        replay_pcap: str | None = None,
-        simulate: bool = False,
+        plugin_allowlist_manifest_path: str | None = None,
+        dynamic_plugins_enabled: bool = True,
     ) -> "SentinelOrchestrator":
-        capture = PacketCaptureEngine(interface=interface, bpf_filter=bpf_filter, replay_pcap=replay_pcap, simulate=simulate)
+        capture = PacketCaptureEngine(interface=interface, bpf_filter=bpf_filter)
         processor = PacketProcessor()
         detector = HybridDetectionEngine(DetectionConfig())
         forensics = ForensicsRepository(db_path=db_path)
-        plugins = PluginManager(plugins_dir=plugin_dir)
+        plugins = PluginManager(
+            plugins_dir=plugin_dir,
+            allowlist_manifest_path=plugin_allowlist_manifest_path,
+            dynamic_plugins_enabled=dynamic_plugins_enabled,
+        )
         plugins.load()
         return cls(capture, processor, detector, forensics, plugins)
 
@@ -67,9 +71,16 @@ async def run_default(
     plugin_dir: str = "plugins",
     interface: str = "any",
     bpf_filter: str = "",
-    replay_pcap: str | None = None,
-    simulate: bool = False,
     max_packets: int | None = None,
+    plugin_allowlist_manifest_path: str | None = None,
+    dynamic_plugins_enabled: bool = True,
 ) -> None:
-    orchestrator = SentinelOrchestrator.from_defaults(db_path, plugin_dir, interface, bpf_filter, replay_pcap, simulate)
+    orchestrator = SentinelOrchestrator.from_defaults(
+        db_path,
+        plugin_dir,
+        interface,
+        bpf_filter,
+        plugin_allowlist_manifest_path=plugin_allowlist_manifest_path,
+        dynamic_plugins_enabled=dynamic_plugins_enabled,
+    )
     await orchestrator.run(max_packets=max_packets)
