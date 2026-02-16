@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QRadialGradient
+from PyQt6.QtGui import QAction, QColor
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
@@ -27,19 +29,17 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
-    QTabWidget,
     QToolBar,
     QVBoxLayout,
     QWidget,
-    QComboBox,
 )
 
 from sentinel_x_defense_suite.config.settings import SettingsLoader
-from sentinel_x_defense_suite.gui.pages import ForensicsTimelinePage, IncidentResponsePage, ThreatHuntingPage
-from sentinel_x_defense_suite.gui.runtime_data import build_runtime_snapshot
+from sentinel_x_defense_suite.gui.navigation.rbac import DEFAULT_POLICY, ROLE_LABELS, Role
+from sentinel_x_defense_suite.gui.navigation.router import GuiRouter, RouteEntry
+from sentinel_x_defense_suite.gui.runtime_data import build_incremental_runtime_snapshot
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -208,11 +208,13 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("DECKTROY · SENTINEL X DEFENSE SUITE")
         self.resize(1820, 1020)
+
         self.settings = QSettings("Decktroy", "SentinelXDefenseSuite")
         self._rows: list[ConnectionViewRow] = []
         self.contracts = ShellContracts()
         self._sidebar_syncing = False
 
+        self.current_role = Role(str(self.settings.value("ui/role", Role.ANALYST.value)))
         self._build_ui()
         self._restore_persistent_state()
 
@@ -256,6 +258,8 @@ class MainWindow(QMainWindow):
         self.shell_splitter.setStretchFactor(2, 0)
 
         self.setCentralWidget(root)
+
+        self._populate_navigation()
 
         status = QStatusBar()
         status.showMessage("Listo · Plataforma defensiva activa")
@@ -422,19 +426,66 @@ class MainWindow(QMainWindow):
             selector.addItem(theme.name, theme.key)
         selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "midnight"))))
 
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+    def _switch_to_route(self, route_id: str) -> None:
+        if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
+            QMessageBox.warning(self, "Acceso denegado", "No tienes permisos para abrir esta vista.")
+            return
 
-        def _save() -> None:
-            selected = str(selector.currentData())
-            self.settings.setValue("ui/theme", selected)
-            apply_theme(QApplication.instance() or QApplication([]), selected)
-            dialog.accept()
+        page = self._route_widgets.get(route_id)
+        if page is None:
+            page = self._router.build_page(route_id)
+            self._wire_page(route_id, page)
+            self._route_widgets[route_id] = page
+            self._route_indices[route_id] = self.page_stack.addWidget(page)
 
-        buttons.accepted.connect(_save)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow("Tema", selector)
-        form.addRow(buttons)
-        dialog.exec()
+        self.page_stack.setCurrentIndex(self._route_indices[route_id])
+        self.settings.setValue("ui/last_route", route_id)
+
+    def _wire_page(self, route_id: str, page: QWidget) -> None:
+        if route_id == "dashboard":
+            self.dashboard_page = page
+            self.table = page.table
+            self.details_tabs = page.details_tabs
+            self.ops_tabs = page.ops_tabs
+            self.incoming_connections_list = page.incoming_connections_list
+            self.service_versions_list = page.service_versions_list
+            self.globe_widget = page.globe_widget
+            self.table.itemSelectionChanged.connect(self._on_row_selected)
+            self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+            self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        elif route_id == "hunting":
+            self.threat_hunting_page = page
+            self.threat_hunting_page.queryChanged.connect(self._on_threat_query)
+        elif route_id == "incident_response":
+            self.incident_response_page = page
+        elif route_id == "forensics":
+            self.forensics_page = page
+        elif route_id == "alerts":
+            self.alerts_page = page
+            self.alerts_page.ack_button.clicked.connect(lambda: self._run_action("alerts.acknowledge"))
+            self.alerts_page.escalate_button.clicked.connect(lambda: self._run_action("alerts.escalate"))
+
+    def _go_to_navigation_query(self) -> None:
+        route = self._router.route_for_query(self.nav_search_input.text())
+        if route is None:
+            self.statusBar().showMessage("No se encontró módulo/función", 3000)
+            return
+        self._switch_to_route(route.route_id)
+        self.statusBar().showMessage(f"Ruta abierta: {route.sidebar_label}", 3000)
+
+    def _on_role_changed(self) -> None:
+        self.current_role = Role(str(self.role_selector.currentData()))
+        self.settings.setValue("ui/role", self.current_role.value)
+        self._populate_navigation()
+
+    def _sync_rbac_actions(self) -> None:
+        self.quick_action_button.setEnabled(DEFAULT_POLICY.allows_action(self.current_role, "demo.event.generate"))
+
+    def _run_action(self, action_id: str) -> bool:
+        if DEFAULT_POLICY.allows_action(self.current_role, action_id):
+            return True
+        QMessageBox.warning(self, "Acción bloqueada", f"Permiso insuficiente para {action_id}.")
+        return False
 
     def _restore_persistent_state(self) -> None:
         apply_theme(QApplication.instance() or QApplication([]), str(self.settings.value("ui/theme", "midnight")))
@@ -534,6 +585,8 @@ class MainWindow(QMainWindow):
         analysis_summary: str = "Sin anomalías detectadas",
         recommendation: str = "Mantener monitoreo continuo y registro forense.",
     ) -> None:
+        if not hasattr(self, "table"):
+            self._switch_to_route("dashboard")
         row_data = ConnectionViewRow(packet, risk_level.upper(), risk_score, country, analysis_summary, recommendation)
         self._rows.append(row_data)
         row = self.table.rowCount()
@@ -552,24 +605,29 @@ class MainWindow(QMainWindow):
             item.setBackground(self._risk_color(row_data.risk_level))
             self.table.setItem(row, col, item)
 
-        self.forensics_page.push_event(
-            {
-                "time": packet.timestamp.strftime("%H:%M:%S"),
-                "severity": row_data.risk_level,
-                "entity": packet.src_ip,
-                "kind": packet.protocol,
-                "summary": analysis_summary,
-                "state": "open",
-            }
-        )
+        if hasattr(self, "forensics_page"):
+            self.forensics_page.push_event(
+                {
+                    "time": packet.timestamp.strftime("%H:%M:%S"),
+                    "severity": row_data.risk_level,
+                    "entity": packet.src_ip,
+                    "kind": packet.protocol,
+                    "summary": analysis_summary,
+                    "state": "open",
+                }
+            )
 
     def _apply_quick_filter(self, expression: str) -> None:
+        if not hasattr(self, "table"):
+            return
         expr = expression.lower().strip()
         for row_idx, row in enumerate(self._rows):
             target = f"{row.packet.src_ip} {row.packet.dst_ip} {row.packet.protocol} {row.analysis_summary}".lower()
             self.table.setRowHidden(row_idx, bool(expr and expr not in target))
 
     def _on_row_selected(self) -> None:
+        if not hasattr(self, "table"):
+            return
         selected = self.table.selectedItems()
         if not selected:
             return
@@ -577,23 +635,10 @@ class MainWindow(QMainWindow):
         if idx >= len(self._rows):
             return
         row = self._rows[idx]
-
-        self._fill_kv_table(
-            self.packet_inspector,
-            [("Timestamp", row.packet.timestamp.isoformat()), ("Origen", row.packet.src_ip), ("Destino", row.packet.dst_ip)],
-        )
-        self._fill_kv_table(
-            self.anomaly_inspector,
-            [("Riesgo", row.risk_level), ("Score", f"{row.risk_score:.1f}"), ("País", row.country)],
-        )
-        self._fill_kv_table(
-            self.response_inspector,
-            [("Contención", row.recommendation), ("Correlación", "SIEM + IDS"), ("Estado", "en curso")],
-        )
-        self._fill_kv_table(
-            self.timeline_tab,
-            [(row.packet.timestamp.strftime("%H:%M:%S"), row.risk_level, row.packet.src_ip, row.analysis_summary)],
-        )
+        self._fill_kv_table(self.dashboard_page.packet_inspector, [("Timestamp", row.packet.timestamp.isoformat()), ("Origen", row.packet.src_ip), ("Destino", row.packet.dst_ip)])
+        self._fill_kv_table(self.dashboard_page.anomaly_inspector, [("Riesgo", row.risk_level), ("Score", f"{row.risk_score:.1f}"), ("País", row.country)])
+        self._fill_kv_table(self.dashboard_page.response_inspector, [("Contención", row.recommendation), ("Correlación", "SIEM + IDS"), ("Estado", "en curso")])
+        self._fill_kv_table(self.dashboard_page.timeline_tab, [(row.packet.timestamp.strftime("%H:%M:%S"), row.risk_level, row.packet.src_ip, row.analysis_summary)])
 
     def _fill_kv_table(self, table: QTableWidget, rows: list[tuple[str, ...]]) -> None:
         table.setRowCount(0)
@@ -604,6 +649,8 @@ class MainWindow(QMainWindow):
                 table.setItem(row, col, QTableWidgetItem(value))
 
     def _simulate_demo_event(self) -> None:
+        if not self._run_action("demo.event.generate"):
+            return
         packet = PacketRecord(
             timestamp=datetime.now(tz=timezone.utc),
             src_ip="198.51.100.42",
@@ -739,7 +786,32 @@ class MainWindow(QMainWindow):
         dialog.resize(620, 420)
         dialog.exec()
 
+    def _build_theme_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Tema premium")
+        form = QFormLayout(dialog)
+        selector = QComboBox()
+        for theme in THEMES.values():
+            selector.addItem(theme.name, theme.key)
+        selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "midnight"))))
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+
+        def _save() -> None:
+            selected = str(selector.currentData())
+            self.settings.setValue("ui/theme", selected)
+            apply_theme(QApplication.instance() or QApplication([]), selected)
+            dialog.accept()
+
+        buttons.accepted.connect(_save)
+        buttons.rejected.connect(dialog.reject)
+        form.addRow("Tema", selector)
+        form.addRow(buttons)
+        dialog.exec()
+
     def _show_runtime_settings_popup(self) -> None:
+        if not self._run_action("runtime.settings.write"):
+            return
         cfg_path = "sentinel_x.yaml"
         settings = SettingsLoader.load(cfg_path)
         dialog = QDialog(self)
