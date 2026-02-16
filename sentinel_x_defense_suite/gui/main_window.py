@@ -36,6 +36,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from sentinel_x_defense_suite.capture.engine import resolve_capture_status
 from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.gui.navigation.rbac import DEFAULT_POLICY, ROLE_LABELS, Role
 from sentinel_x_defense_suite.gui.navigation.router import GuiRouter, RouteEntry
@@ -55,6 +56,7 @@ class SnapshotContract(TypedDict, total=False):
     incoming_connections: list[dict[str, Any]]
     service_versions: list[dict[str, Any]]
     globe_points: list[dict[str, Any]]
+    capture_status: str
 
 
 class AlertContract(TypedDict):
@@ -245,6 +247,7 @@ class MainWindow(QMainWindow):
         self.audit_trail: list[AuditEntry] = []
         self._last_snapshot: dict[str, Any] | None = None
         self._sidebar_syncing = False
+        self.capture_status = self._resolve_capture_status()
 
         self.current_role = Role(str(self.settings.value("ui/role", Role.ANALYST.value)))
         self._build_ui()
@@ -255,6 +258,27 @@ class MainWindow(QMainWindow):
         self._runtime_timer.start(1500)
         self._refresh_runtime_watch()
 
+
+    def _resolve_capture_status(self) -> str:
+        config_path = Path("sentinel_x.yaml")
+        if not config_path.exists():
+            return "error"
+        settings = SettingsLoader.load(config_path)
+        return resolve_capture_status(settings.capture.interface, settings.capture.replay_pcap, settings.capture.simulate)
+
+    def _render_capture_status_banner(self) -> None:
+        labels = {
+            "live": ("LIVE", "#0f5132", "#d1e7dd"),
+            "replay": ("REPLAY", "#664d03", "#fff3cd"),
+            "simulated": ("SIMULATED", "#055160", "#cff4fc"),
+            "error": ("ERROR", "#842029", "#f8d7da"),
+        }
+        label, fg, bg = labels.get(self.capture_status, labels["error"])
+        self.capture_status_banner.setText(f"Estado de captura: {label}")
+        self.capture_status_banner.setStyleSheet(
+            f"font-weight: 700; padding: 6px 10px; border-radius: 6px; color: {fg}; background: {bg};"
+        )
+
     def _build_ui(self) -> None:
         self._build_menu_bar()
 
@@ -263,6 +287,11 @@ class MainWindow(QMainWindow):
 
         # 1) topbar
         self._build_topbar()
+
+        self.capture_status_banner = QLabel()
+        self.capture_status_banner.setObjectName("captureStatusBanner")
+        root_layout.addWidget(self.capture_status_banner)
+        self._render_capture_status_banner()
 
         # 2) sidebar · 3) workspace · 4) contextual panel
         self.shell_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -728,6 +757,7 @@ class MainWindow(QMainWindow):
     def _refresh_runtime_watch(self) -> None:
         incremental = build_incremental_runtime_snapshot(self._last_snapshot, include_service_versions=True)
         snapshot = incremental.get("full_snapshot", {})
+        snapshot["capture_status"] = self.capture_status
         self.contracts.snapshot = snapshot
         self._last_snapshot = snapshot
 
@@ -769,6 +799,7 @@ class MainWindow(QMainWindow):
             ("incoming_connections", str(len(self.contracts.snapshot.get("incoming_connections", [])))),
             ("service_versions", str(len(self.contracts.snapshot.get("service_versions", [])))),
             ("playbook", self.contracts.playbook.get("last_playbook", "none")),
+            ("capture_status", str(self.contracts.snapshot.get("capture_status", "error"))),
         ]
         for key, value in rows:
             row = self.context_snapshot.rowCount()

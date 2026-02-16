@@ -25,6 +25,7 @@ class CaptureSettings:
     bpf_filter: str = ""
     queue_maxsize: int = 5000
     replay_pcap: str | None = None
+    simulate: bool = False
 
 
 @dataclass(slots=True)
