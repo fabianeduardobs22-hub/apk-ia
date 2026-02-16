@@ -6,14 +6,14 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
+    QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
+
+from sentinel_x_defense_suite.gui.sections.incident_response.models import ResponseTask
+from sentinel_x_defense_suite.gui.sections.workflow import DrillDownWorkflowWidget, ModuleExportToolbar, export_records
 
 
 class IncidentResponsePage(QWidget):
@@ -35,39 +35,43 @@ class IncidentResponsePage(QWidget):
         controls_layout.addStretch(1)
         root.addWidget(controls)
 
-        self.checklist = QListWidget()
-        for item in [
-            "Aislar host comprometido",
-            "Revocar credenciales expuestas",
-            "Bloquear IOC en firewall/IDS",
-            "Capturar evidencia de memoria y disco",
-            "Notificar a legal y compliance",
-        ]:
-            QListWidgetItem(item, self.checklist)
+        self.export_toolbar = ModuleExportToolbar()
+        root.addWidget(self.export_toolbar)
 
-        self.execution_table = QTableWidget(0, 4)
-        self.execution_table.setHorizontalHeaderLabels(["Playbook", "Modo", "Estado", "Badge"])
-        self.execution_table.setSortingEnabled(True)
-
-        root.addWidget(QLabel("Checklist de contención"))
-        root.addWidget(self.checklist, 2)
-        root.addWidget(QLabel("Ejecuciones"))
-        root.addWidget(self.execution_table, 2)
+        self.workflow = DrillDownWorkflowWidget()
+        root.addWidget(self.workflow)
 
         self.status = QLabel("Sin ejecuciones")
         self.status.setObjectName("statusBadge")
         root.addWidget(self.status)
 
+        self._records: list[ResponseTask] = []
+        self._load_default_tasks()
+
         self.run_containment.clicked.connect(lambda: self._execute("Containment"))
         self.run_eradication.clicked.connect(lambda: self._execute("Eradication"))
+        self.export_toolbar.exportRequested.connect(self._export)
+        self.workflow.actionRequested.connect(self._on_action_requested)
+
+    def _load_default_tasks(self) -> None:
+        self._records = [
+            ResponseTask("ir-1", "Contención", "SOC L2", "pending", ["Host con beacon C2"], "Aislar host"),
+            ResponseTask("ir-2", "Contención", "SOC L2", "pending", ["Destino malicioso 203.0.113.44"], "Bloquear destino"),
+            ResponseTask("ir-3", "Coordinación", "IR Lead", "pending", ["Caso regulatorio"], "Elevar incidente"),
+            ResponseTask("ir-4", "Seguimiento", "Service Desk", "pending", ["Remediación en progreso"], "Abrir ticket"),
+        ]
+        self.workflow.set_records([record.to_drilldown() for record in self._records])
 
     def _execute(self, playbook: str) -> None:
         mode = "SAFE" if self.safe_mode.isChecked() else "LIVE"
-        row = self.execution_table.rowCount()
-        self.execution_table.insertRow(row)
         state = "simulado" if mode == "SAFE" else "ejecutado"
-        badge = "🛡️" if mode == "SAFE" else "⚠️"
-        for col, value in enumerate([playbook, mode, state, badge]):
-            self.execution_table.setItem(row, col, QTableWidgetItem(value))
-        self.status.setText(f"Última ejecución: {playbook} ({mode})")
+        self.status.setText(f"Última ejecución: {playbook} ({mode}/{state})")
         self.playbookExecuted.emit(playbook)
+
+    def _export(self, export_format: str) -> None:
+        output = export_records("incident_response", [record.to_drilldown() for record in self._records], export_format, self)
+        if output is not None:
+            self.status.setText(f"Última exportación: {output.name}")
+
+    def _on_action_requested(self, action_id: str, identifier: str) -> None:
+        QMessageBox.information(self, "Acción defensiva", f"{action_id} solicitado para {identifier} en modo seguro.")

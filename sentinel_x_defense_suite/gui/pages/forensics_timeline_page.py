@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QDialog, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QMessageBox, QVBoxLayout, QWidget
+
+from sentinel_x_defense_suite.gui.sections.forensics.models import TimelineEvent
+from sentinel_x_defense_suite.gui.sections.workflow import DrillDownWorkflowWidget, ModuleExportToolbar, export_records
 
 
 class ForensicsTimelinePage(QWidget):
@@ -9,48 +11,34 @@ class ForensicsTimelinePage(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
 
-        self.timeline_table = QTableWidget(0, 6)
-        self.timeline_table.setHorizontalHeaderLabels(
-            ["Hora", "Severidad", "Entidad", "Tipo", "Resumen", "Estado"]
-        )
-        self.timeline_table.setSortingEnabled(True)
-        self.timeline_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.timeline_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.timeline_table.itemDoubleClicked.connect(self._open_drill_down)
-        layout.addWidget(self.timeline_table)
+        layout.addWidget(QLabel("Timeline forense con drill-down uniforme"))
+        self.export_toolbar = ModuleExportToolbar()
+        layout.addWidget(self.export_toolbar)
+
+        self.workflow = DrillDownWorkflowWidget()
+        layout.addWidget(self.workflow)
+
+        self._events: list[TimelineEvent] = []
+        self.export_toolbar.exportRequested.connect(self._export)
+        self.workflow.actionRequested.connect(self._on_action_requested)
 
     def push_event(self, payload: dict[str, str]) -> None:
-        row = self.timeline_table.rowCount()
-        self.timeline_table.insertRow(row)
-        values = [
-            payload.get("time", "-"),
-            payload.get("severity", "LOW"),
-            payload.get("entity", "unknown"),
-            payload.get("kind", "network"),
-            payload.get("summary", "-"),
-            payload.get("state", "open"),
-        ]
-        for col, value in enumerate(values):
-            item = QTableWidgetItem(value)
-            if col == 1 and value in {"HIGH", "CRITICAL"}:
-                item.setData(Qt.ItemDataRole.ToolTipRole, "Evento de alta prioridad")
-            self.timeline_table.setItem(row, col, item)
+        idx = len(self._events) + 1
+        event = TimelineEvent(
+            identifier=f"forensic-{idx}",
+            time=payload.get("time", "-"),
+            severity=payload.get("severity", "LOW"),
+            entity=payload.get("entity", "unknown"),
+            kind=payload.get("kind", "network"),
+            summary=payload.get("summary", "-"),
+            evidence=[f"Estado: {payload.get('state', 'open')}", f"Tipo: {payload.get('kind', 'network')}"],
+            recommendation="Preservar evidencia y abrir ticket de seguimiento",
+        )
+        self._events.append(event)
+        self.workflow.set_records([item.to_drilldown() for item in self._events])
 
-    def _open_drill_down(self, item: QTableWidgetItem) -> None:
-        row = item.row()
-        values = [
-            self.timeline_table.item(row, col).text() if self.timeline_table.item(row, col) else ""
-            for col in range(self.timeline_table.columnCount())
-        ]
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Drill-down forense")
-        layout = QVBoxLayout(dialog)
-        details = QTableWidget(6, 2)
-        details.setHorizontalHeaderLabels(["Campo", "Valor"])
-        labels = ["Hora", "Severidad", "Entidad", "Tipo", "Resumen", "Estado"]
-        for idx, label in enumerate(labels):
-            details.setItem(idx, 0, QTableWidgetItem(label))
-            details.setItem(idx, 1, QTableWidgetItem(values[idx]))
-        layout.addWidget(details)
-        dialog.resize(560, 380)
-        dialog.exec()
+    def _export(self, export_format: str) -> None:
+        export_records("forensics_timeline", [event.to_drilldown() for event in self._events], export_format, self)
+
+    def _on_action_requested(self, action_id: str, identifier: str) -> None:
+        QMessageBox.information(self, "Acción defensiva", f"{action_id} solicitado desde evidencia {identifier}.")
