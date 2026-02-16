@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -28,7 +29,6 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
-    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -387,8 +387,11 @@ class MainWindow(QMainWindow):
         return panel
 
 
-    def _build_contextual_panel(self) -> QTabWidget:
-        tabs = QTabWidget()
+    def _build_contextual_panel(self) -> QWidget:
+        panel = QWidget()
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 0)
+        panel_layout.setSpacing(10)
 
         self.context_snapshot = QTableWidget(0, 2)
         self.context_snapshot.setHorizontalHeaderLabels(["Clave", "Valor"])
@@ -416,12 +419,32 @@ class MainWindow(QMainWindow):
         audit_layout.addWidget(self.audit_table)
         audit_layout.addWidget(self.export_audit_button)
 
-        tabs.addTab(self.context_snapshot, "snapshot")
-        tabs.addTab(alerts_tab, "alerts")
-        tabs.addTab(self.context_assets, "assets")
-        tabs.addTab(self.workbench_table, "workbench")
-        tabs.addTab(audit_tab, "auditoría")
-        return tabs
+        snapshot_group = QGroupBox("Snapshot")
+        snapshot_layout = QVBoxLayout(snapshot_group)
+        snapshot_layout.addWidget(self.context_snapshot)
+
+        alerts_group = QGroupBox("Alerts")
+        alerts_group_layout = QVBoxLayout(alerts_group)
+        alerts_group_layout.addWidget(alerts_tab)
+
+        assets_group = QGroupBox("Assets")
+        assets_layout = QVBoxLayout(assets_group)
+        assets_layout.addWidget(self.context_assets)
+
+        workbench_group = QGroupBox("Workbench")
+        workbench_layout = QVBoxLayout(workbench_group)
+        workbench_layout.addWidget(self.workbench_table)
+
+        audit_group = QGroupBox("Auditoría")
+        audit_group_layout = QVBoxLayout(audit_group)
+        audit_group_layout.addWidget(audit_tab)
+
+        panel_layout.addWidget(snapshot_group)
+        panel_layout.addWidget(alerts_group)
+        panel_layout.addWidget(assets_group)
+        panel_layout.addWidget(workbench_group)
+        panel_layout.addWidget(audit_group)
+        return panel
 
     def _build_soc_page(self) -> QWidget:
         page = QWidget()
@@ -437,7 +460,11 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
 
-        self.details_tabs = QTabWidget()
+        detail_panel = QWidget()
+        detail_layout = QVBoxLayout(detail_panel)
+        detail_layout.setContentsMargins(0, 0, 0, 0)
+        detail_layout.setSpacing(8)
+
         self.packet_inspector = QTableWidget(0, 2)
         self.packet_inspector.setHorizontalHeaderLabels(["Campo", "Valor"])
         self.anomaly_inspector = QTableWidget(0, 2)
@@ -447,25 +474,59 @@ class MainWindow(QMainWindow):
         self.timeline_tab = QTableWidget(0, 4)
         self.timeline_tab.setHorizontalHeaderLabels(["Hora", "Severidad", "Entidad", "Resumen"])
 
-        self.details_tabs.addTab(self.packet_inspector, "Inspector de paquete")
-        self.details_tabs.addTab(self.anomaly_inspector, "Anomalías y riesgo")
-        self.details_tabs.addTab(self.response_inspector, "Respuesta defensiva")
-        self.details_tabs.addTab(self.timeline_tab, "Timeline")
-        self.details_tabs.currentChanged.connect(lambda idx: self.settings.setValue("ui/last_workspace_tab", idx))
+        packet_group = QGroupBox("Inspector de paquete")
+        packet_layout = QVBoxLayout(packet_group)
+        packet_layout.addWidget(self.packet_inspector)
+
+        anomaly_group = QGroupBox("Anomalías y riesgo")
+        anomaly_layout = QVBoxLayout(anomaly_group)
+        anomaly_layout.addWidget(self.anomaly_inspector)
+
+        response_group = QGroupBox("Respuesta defensiva")
+        response_layout = QVBoxLayout(response_group)
+        response_layout.addWidget(self.response_inspector)
+
+        timeline_group = QGroupBox("Timeline")
+        timeline_layout = QVBoxLayout(timeline_group)
+        timeline_layout.addWidget(self.timeline_tab)
+
+        detail_layout.addWidget(packet_group)
+        detail_layout.addWidget(anomaly_group)
+        detail_layout.addWidget(response_group)
+        detail_layout.addWidget(timeline_group)
 
         center_layout.addWidget(self.table, 3)
-        center_layout.addWidget(self.details_tabs, 2)
+        center_layout.addWidget(detail_panel, 2)
 
-        self.ops_tabs = QTabWidget()
-        self.ops_tabs.addTab(self._build_globe_tab(), "Globo 3D")
-        self.ops_tabs.addTab(self._build_connections_tab(), "Conexiones")
-        self.ops_tabs.addTab(self._build_services_tab(), "Servicios")
-        self.context_tabs = self._build_contextual_panel()
-        self.ops_tabs.addTab(self.context_tabs, "Contexto")
+        ops_panel = QWidget()
+        ops_layout = QVBoxLayout(ops_panel)
+        ops_layout.setContentsMargins(0, 0, 0, 0)
+        ops_layout.setSpacing(8)
+
+        globe_group = QGroupBox("Globo 3D")
+        globe_layout = QVBoxLayout(globe_group)
+        globe_layout.addWidget(self._build_globe_tab())
+
+        conn_group = QGroupBox("Conexiones")
+        conn_layout = QVBoxLayout(conn_group)
+        conn_layout.addWidget(self._build_connections_tab())
+
+        services_group = QGroupBox("Servicios")
+        services_layout = QVBoxLayout(services_group)
+        services_layout.addWidget(self._build_services_tab())
+
+        context_group = QGroupBox("Contexto")
+        context_layout = QVBoxLayout(context_group)
+        context_layout.addWidget(self._build_contextual_panel())
+
+        ops_layout.addWidget(globe_group)
+        ops_layout.addWidget(conn_group)
+        ops_layout.addWidget(services_group)
+        ops_layout.addWidget(context_group)
 
         self.soc_splitter = QSplitter(Qt.Orientation.Horizontal)
         self.soc_splitter.addWidget(center)
-        self.soc_splitter.addWidget(self.ops_tabs)
+        self.soc_splitter.addWidget(ops_panel)
         self.soc_splitter.setSizes([1200, 500])
         layout.addWidget(self.soc_splitter)
         return page
@@ -613,8 +674,6 @@ class MainWindow(QMainWindow):
         self.threat_hunting_page.entity_pivot.setCurrentText(str(self.settings.value("filters/pivot", "IP")))
         self.threat_hunting_page.severity_filter.setCurrentText(str(self.settings.value("filters/severity", "Todas")))
         self.analyst_preset.setCurrentText(str(self.settings.value("ui/analyst_preset", "SOC L1")))
-
-        self.details_tabs.setCurrentIndex(int(self.settings.value("ui/last_workspace_tab", 0)))
 
         shell_sizes = self.settings.value("ui/main_splitter_sizes")
         if isinstance(shell_sizes, list) and len(shell_sizes) == 2:
