@@ -24,6 +24,32 @@ Flujo sugerido:
 2. Opción 4 para auditar un activo por número.
 3. Opción 5 o 6 para exportar reporte.
 
+DECKTROY (plan defensivo para servidores):
+- Documento de descubrimiento/arquitectura: `docs/DECKTROY_DISCOVERY.md`
+- Script de chequeo inicial de integridad: `python3 decktroy/bootstrap_healthcheck.py`
+
+DECKTROY CLI (blue-team defensivo):
+- Instalación Linux: `./install_decktroy_linux.sh`
+- Comando global: `decktroy --help` (después de instalar)
+- Ejecutar ayuda: `python3 decktroy/decktroy_cli.py --help`
+- Inventario: `python3 decktroy/decktroy_cli.py inventory`
+- Evaluación de postura: `python3 decktroy/decktroy_cli.py assess`
+- Asistente defensivo IA: `python3 decktroy/decktroy_cli.py advisor --environment auto`
+- Threat feed: `python3 decktroy/decktroy_cli.py threat-feed --environment auto --lines 300`
+- Servicios: `python3 decktroy/decktroy_cli.py services --action list`
+- Guardia conexiones: `python3 decktroy/decktroy_cli.py connection-guard --mode analyze --duration 10`
+- Incidentes: `python3 decktroy/decktroy_cli.py incident list`
+- Playbooks: `python3 decktroy/decktroy_cli.py playbook list`
+- Estado inicial integral: `python3 decktroy/decktroy_cli.py startup -o decktroy_startup_status.json`
+- Dashboard web: `python3 decktroy/decktroy_cli.py web --host 0.0.0.0 --port 8080`
+- Dashboard con control de servicios: `python3 decktroy/decktroy_cli.py web --host 0.0.0.0 --port 8080 --enable-service-control`
+- Terminal visual segura en UI: `/api/execute-safe` (allowlist defensiva)
+- Selftest integral: `python3 decktroy/decktroy_cli.py selftest`
+- Monitor runtime: `python3 decktroy/decktroy_cli.py runtime-monitor -o decktroy_runtime_monitor.json`
+- Instalación paso a paso (.txt): `INSTALL_DECKTROY.txt`
+- Documentación CLI: `docs/DECKTROY_CLI.md`
+- Comparativa y roadmap avanzado: `docs/DECKTROY_COMPARISON.md`
+
 Notas importantes:
 - Esta herramienta NO explota vulnerabilidades ni intenta obtener acceso no autorizado.
 - Está pensada para laboratorios y auditorías con permiso explícito.
