@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections import deque
 
@@ -30,8 +29,16 @@ class SentinelOrchestrator:
         self.recent_alerts = deque(maxlen=300)
 
     @classmethod
-    def from_defaults(cls, db_path: str, plugin_dir: str, interface: str, bpf_filter: str) -> "SentinelOrchestrator":
-        capture = PacketCaptureEngine(interface=interface, bpf_filter=bpf_filter)
+    def from_defaults(
+        cls,
+        db_path: str,
+        plugin_dir: str,
+        interface: str,
+        bpf_filter: str,
+        replay_pcap: str | None = None,
+        simulate: bool = False,
+    ) -> "SentinelOrchestrator":
+        capture = PacketCaptureEngine(interface=interface, bpf_filter=bpf_filter, replay_pcap=replay_pcap, simulate=simulate)
         processor = PacketProcessor()
         detector = HybridDetectionEngine(DetectionConfig())
         forensics = ForensicsRepository(db_path=db_path)
@@ -55,6 +62,14 @@ class SentinelOrchestrator:
                 break
 
 
-async def run_default(db_path: str = "data/sentinel_x.db", plugin_dir: str = "plugins", interface: str = "any", bpf_filter: str = "", max_packets: int | None = None) -> None:
-    orchestrator = SentinelOrchestrator.from_defaults(db_path, plugin_dir, interface, bpf_filter)
+async def run_default(
+    db_path: str = "data/sentinel_x.db",
+    plugin_dir: str = "plugins",
+    interface: str = "any",
+    bpf_filter: str = "",
+    replay_pcap: str | None = None,
+    simulate: bool = False,
+    max_packets: int | None = None,
+) -> None:
+    orchestrator = SentinelOrchestrator.from_defaults(db_path, plugin_dir, interface, bpf_filter, replay_pcap, simulate)
     await orchestrator.run(max_packets=max_packets)

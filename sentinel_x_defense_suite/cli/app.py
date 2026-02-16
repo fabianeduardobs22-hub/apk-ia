@@ -5,6 +5,7 @@ import asyncio
 import json
 from pathlib import Path
 
+from sentinel_x_defense_suite.capture.engine import CaptureRuntimeError
 from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.core.logging_setup import configure_logging
 from sentinel_x_defense_suite.core.orchestrator import run_default
@@ -20,6 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_run = sub.add_parser("run", help="Monitoreo en tiempo real")
     p_run.add_argument("--max-packets", type=int, default=500)
+    p_run.add_argument("--simulate", action="store_true", help="Usa telemetría sintética explícita")
 
     sub.add_parser("gui", help="Lanzar interfaz PyQt6")
 
@@ -58,20 +60,27 @@ def main() -> None:
     configure_logging(settings.log_level)
 
     if command == "run":
-        try:
-            enforce_live_capture_privileges(settings.capture.interface, settings.capture.replay_pcap)
-        except PrivilegeError as exc:
-            parser.error(str(exc))
+        simulate = bool(getattr(args, "simulate", False) or settings.capture.simulate)
+        if not simulate:
+            try:
+                enforce_live_capture_privileges(settings.capture.interface, settings.capture.replay_pcap)
+            except PrivilegeError as exc:
+                parser.error(str(exc))
 
-        asyncio.run(
-            run_default(
-                db_path=settings.database.sqlite_path,
-                plugin_dir="plugins",
-                interface=settings.capture.interface,
-                bpf_filter=settings.capture.bpf_filter,
-                max_packets=args.max_packets,
+        try:
+            asyncio.run(
+                run_default(
+                    db_path=settings.database.sqlite_path,
+                    plugin_dir="plugins",
+                    interface=settings.capture.interface,
+                    bpf_filter=settings.capture.bpf_filter,
+                    replay_pcap=settings.capture.replay_pcap,
+                    simulate=simulate,
+                    max_packets=args.max_packets,
+                )
             )
-        )
+        except CaptureRuntimeError as exc:
+            parser.error(str(exc))
     elif command == "gui":
         from sentinel_x_defense_suite.gui.main_window import launch_gui
 
