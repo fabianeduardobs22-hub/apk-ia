@@ -4,7 +4,6 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QGridLayout,
-    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -14,8 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from sentinel_x_defense_suite.gui.sections.hunting.models import HuntingFinding
-from sentinel_x_defense_suite.gui.sections.workflow import DrillDownRecord, DrillDownWorkflowWidget, ModuleExportToolbar, export_records
+from sentinel_x_defense_suite.gui.widgets.ui_components import MetricTile, RiskCard, SeverityBadge
 
 
 class ThreatHuntingPage(QWidget):
@@ -25,7 +23,7 @@ class ThreatHuntingPage(QWidget):
         super().__init__(parent)
         root = QVBoxLayout(self)
 
-        filters_box = QGroupBox("Threat Hunting · Queries y filtros compuestos")
+        filters_box = RiskCard("Threat Hunting · Queries y filtros compuestos")
         filters_layout = QGridLayout(filters_box)
 
         self.query_input = QLineEdit()
@@ -51,6 +49,14 @@ class ThreatHuntingPage(QWidget):
         self.workflow = DrillDownWorkflowWidget()
         root.addWidget(self.workflow)
 
+        metrics_row = QHBoxLayout()
+        self.matches_tile = MetricTile("Resultados", "0")
+        self.severity_badge = SeverityBadge("low")
+        metrics_row.addWidget(self.matches_tile)
+        metrics_row.addWidget(self.severity_badge)
+        metrics_row.addStretch(1)
+        root.addLayout(metrics_row)
+
         status_row = QHBoxLayout()
         self.status_badge = QLabel("Estado: idle")
         self.status_badge.setObjectName("statusBadge")
@@ -70,27 +76,27 @@ class ThreatHuntingPage(QWidget):
         self.queryChanged.emit(query)
 
     def set_results(self, rows: list[dict[str, str]]) -> None:
-        self._records = [
-            HuntingFinding(
-                identifier=f"hunt-{idx+1}",
-                time=row.get("time", "-"),
-                entity=row.get("entity", "-"),
-                value=row.get("value", "-"),
-                severity=row.get("severity", "LOW"),
-                detection=row.get("detection", "n/a"),
-                evidence=[f"Badge: {row.get('badge', 'observed')}", f"Query: {self.query_input.text().strip() or 'default'}"],
-                recommendation="Bloquear destino y elevar incidente si la severidad es HIGH/CRITICAL",
-            )
-            for idx, row in enumerate(rows)
-        ]
-        drilldown_rows: list[DrillDownRecord] = [finding.to_drilldown() for finding in self._records]
-        self.workflow.set_records(drilldown_rows)
-
-    def _export(self, export_format: str) -> None:
-        records = [record.to_drilldown() for record in self._records]
-        output = export_records("threat_hunting", records, export_format, self)
-        if output is not None:
-            self.status_badge.setText(f"Estado: exportado {export_format.upper()} -> {output.name}")
-
-    def _on_action_requested(self, action_id: str, identifier: str) -> None:
-        QMessageBox.information(self, "Acción defensiva", f"{action_id} solicitado para {identifier} (modo defensivo seguro).")
+        self.results_table.setRowCount(0)
+        top_severity = "low"
+        rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+        for row in rows:
+            idx = self.results_table.rowCount()
+            self.results_table.insertRow(idx)
+            values = [
+                row.get("time", "-"),
+                row.get("entity", "-"),
+                row.get("value", "-"),
+                row.get("severity", "LOW"),
+                row.get("detection", "n/a"),
+                row.get("badge", "observed"),
+            ]
+            for col, value in enumerate(values):
+                self.results_table.setItem(idx, col, QTableWidgetItem(value))
+            sev = str(row.get("severity", "LOW")).lower()
+            if rank.get(sev, 1) > rank.get(top_severity, 1):
+                top_severity = sev
+        self.matches_tile.set_value(str(len(rows)))
+        self.severity_badge.setText(top_severity.upper())
+        self.severity_badge.setProperty("severity", top_severity)
+        self.severity_badge.style().unpolish(self.severity_badge)
+        self.severity_badge.style().polish(self.severity_badge)
