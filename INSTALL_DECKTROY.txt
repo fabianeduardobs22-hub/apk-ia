@@ -1,0 +1,57 @@
+DECKTROY - Instalación rápida en Linux (defensivo)
+==================================================
+
+1) Requisitos base
+------------------
+- Linux (Ubuntu/Debian/Kali/RHEL compatibles)
+- Python 3.10+
+- Permisos de administrador para controles opcionales de firewall/servicios
+
+
+2) Ir al directorio del proyecto
+--------------------------------
+cd /ruta/al/proyecto/apk-ia
+
+
+3) Instalar launcher global
+---------------------------
+chmod +x install_decktroy_linux.sh
+./install_decktroy_linux.sh
+
+Esto instala:
+- ~/.local/bin/decktroy
+
+
+4) Verificar instalación
+------------------------
+decktroy --help
+
+
+5) Primera validación (sin cambios destructivos)
+------------------------------------------------
+decktroy startup -o decktroy_startup_status.json
+decktroy selftest
+
+
+6) Iniciar dashboard web
+------------------------
+decktroy web --host 0.0.0.0 --port 8080
+
+Abrir en navegador:
+http://127.0.0.1:8080
+
+
+7) Verificador de ejecución integral (nuevo)
+--------------------------------------------
+python3 decktroy/runtime_monitor.py
+
+Opcional (guardar reporte):
+python3 decktroy/runtime_monitor.py -o decktroy_runtime_monitor.json
+
+
+Notas de seguridad
+------------------
+- DECKTROY mantiene alcance defensivo y legal.
+- No incluye intrusión ni contraataque ofensivo.
+- Para cambios reales en servicios/firewall, use privilegios root y confirme cada acción.
+
