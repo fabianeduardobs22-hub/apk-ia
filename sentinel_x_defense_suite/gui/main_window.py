@@ -172,12 +172,14 @@ class TacticalGlobeWidget(QWidget):
         self.setMinimumHeight(220)
         self._rotation = 0.0
         self._points: list[dict[str, float | str | int]] = []
+        self._estimated_points_visible = False
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._advance_rotation)
         self._timer.start(80)
 
     def set_points(self, points: list[dict[str, float | str | int]]) -> None:
         self._points = points[:120]
+        self._estimated_points_visible = any(point.get("geo_source") == "estimated" for point in self._points)
         self.update()
 
     def _advance_rotation(self) -> None:
@@ -219,6 +221,13 @@ class TacticalGlobeWidget(QWidget):
             painter.setPen(QPen(color, 1))
             painter.setBrush(color)
             painter.drawEllipse(int(cx + x - 3), int(cy - y - 3), 6 + severity, 6 + severity)
+
+        if self._estimated_points_visible:
+            label = "⚠ Geolocalización estimada (sin base GeoIP local)"
+            painter.setPen(QPen(QColor("#ffcd57"), 1))
+            painter.setBrush(QColor("#2a1d00"))
+            painter.drawRoundedRect(12, 12, 340, 26, 6, 6)
+            painter.drawText(22, 30, label)
 
 
 class MainWindow(QMainWindow):
