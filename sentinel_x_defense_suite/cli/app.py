@@ -16,7 +16,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sentinel-x", description="SENTINEL X DEFENSE SUITE")
     parser.add_argument("--config", default="sentinel_x.yaml", help="Ruta del archivo YAML")
 
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
 
     p_run = sub.add_parser("run", help="Monitoreo en tiempo real")
     p_run.add_argument("--max-packets", type=int, default=500)
@@ -27,14 +27,29 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--output", required=True)
 
     sub.add_parser("init-config", help="Genera YAML por defecto")
+    sub.add_parser("quickstart", help="Prepara configuración inicial y lanza GUI")
     return parser
+
+
+def _ensure_config(config_path: str) -> None:
+    config_file = Path(config_path)
+    if config_file.exists():
+        return
+    SettingsLoader.dump_default(config_path)
+    print(f"[quickstart] Configuración base creada en {config_path}")
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "init-config":
+    command = args.command or "quickstart"
+
+    if command == "quickstart":
+        _ensure_config(args.config)
+        command = "gui"
+
+    if command == "init-config":
         SettingsLoader.dump_default(args.config)
         print(f"Configuración creada en {args.config}")
         return
@@ -42,7 +57,7 @@ def main() -> None:
     settings = SettingsLoader.load(args.config)
     configure_logging(settings.log_level)
 
-    if args.command == "run":
+    if command == "run":
         try:
             enforce_live_capture_privileges(settings.capture.interface, settings.capture.replay_pcap)
         except PrivilegeError as exc:
@@ -57,11 +72,11 @@ def main() -> None:
                 max_packets=args.max_packets,
             )
         )
-    elif args.command == "gui":
+    elif command == "gui":
         from sentinel_x_defense_suite.gui.main_window import launch_gui
 
         launch_gui()
-    elif args.command == "export-alerts":
+    elif command == "export-alerts":
         data = ForensicsRepository(settings.database.sqlite_path).export_json()
         Path(args.output).write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         print(f"Alertas exportadas: {args.output}")

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from pathlib import Path
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QColor, QFont
@@ -11,6 +12,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPlainTextEdit,
+    QPushButton,
     QSplitter,
     QStatusBar,
     QTableWidget,
@@ -32,6 +35,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.core.capability_matrix import default_capability_matrix, summarize_matrix
 from sentinel_x_defense_suite.gui.viewmodels import RowMetrics, compute_dashboard_metrics
 from sentinel_x_defense_suite.models.events import PacketRecord
@@ -50,8 +54,8 @@ class ConnectionViewRow:
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("SENTINEL X DEFENSE SUITE")
-        self.resize(1700, 980)
+        self.setWindowTitle("DECKTROY · SENTINEL X DEFENSE SUITE")
+        self.resize(1820, 1020)
         self._rows: list[ConnectionViewRow] = []
         self._build_ui()
         self._apply_dark_theme()
@@ -94,10 +98,14 @@ class MainWindow(QMainWindow):
         menu_view.addAction(action_filters)
 
         menu_tools = bar.addMenu("Herramientas")
+        action_settings = QAction("Configuración rápida", self)
+        action_settings.triggered.connect(self._show_runtime_settings_popup)
         action_simulate = QAction("Generar evento de demostración", self)
         action_simulate.triggered.connect(self._simulate_demo_event)
         action_ioc = QAction("Copiar IOC de conexión seleccionada", self)
         action_ioc.triggered.connect(self._copy_selected_ioc)
+        menu_tools.addAction(action_settings)
+        menu_tools.addSeparator()
         menu_tools.addAction(action_simulate)
         menu_tools.addAction(action_ioc)
 
@@ -120,6 +128,11 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(title)
         toolbar.addSeparator()
         toolbar.addWidget(self.search_input)
+
+        self.quick_action_button = QPushButton("Evento demo")
+        self.quick_action_button.clicked.connect(self._simulate_demo_event)
+        toolbar.addSeparator()
+        toolbar.addWidget(self.quick_action_button)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _build_sidebar(self) -> QWidget:
@@ -178,6 +191,8 @@ class MainWindow(QMainWindow):
         grid = QGridLayout(workspace)
         grid.setSpacing(8)
 
+        cards_widget = self._build_soc_cards()
+
         self.table = QTableWidget(0, 11)
         self.table.setHorizontalHeaderLabels(
             [
@@ -228,8 +243,38 @@ class MainWindow(QMainWindow):
         center_split.addWidget(self.hex_ascii)
         center_split.setSizes([520, 260, 220])
 
-        grid.addWidget(center_split, 0, 0)
+        grid.addWidget(cards_widget, 0, 0)
+        grid.addWidget(center_split, 1, 0)
         return workspace
+
+
+    def _build_soc_cards(self) -> QWidget:
+        cards = QWidget()
+        row = QHBoxLayout(cards)
+        row.setSpacing(8)
+
+        self.card_events = self._create_card("Eventos", "0")
+        self.card_critical = self._create_card("Críticos", "0")
+        self.card_unique_ips = self._create_card("IPs únicas", "0")
+        self.card_protocol = self._create_card("Protocolo top", "-", value_size=16)
+
+        for card in (self.card_events, self.card_critical, self.card_unique_ips, self.card_protocol):
+            row.addWidget(card)
+        return cards
+
+    def _create_card(self, title: str, value: str, value_size: int = 24) -> QFrame:
+        card = QFrame()
+        card.setObjectName("socCard")
+        layout = QVBoxLayout(card)
+        label_title = QLabel(title)
+        label_title.setObjectName("socCardTitle")
+        label_value = QLabel(value)
+        label_value.setObjectName("socCardValue")
+        label_value.setStyleSheet(f"font-size: {value_size}px;")
+        layout.addWidget(label_title)
+        layout.addWidget(label_value)
+        card._value_label = label_value  # type: ignore[attr-defined]
+        return card
 
     def _refresh_capability_tab(self) -> None:
         matrix = default_capability_matrix()
@@ -252,15 +297,20 @@ class MainWindow(QMainWindow):
 
     def _apply_dark_theme(self) -> None:
         self.setStyleSheet(
-            """
-            QMainWindow, QWidget { background-color: #0f141a; color: #dde6f3; }
-            QGroupBox { border: 1px solid #203041; border-radius: 6px; margin-top: 6px; }
-            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 3px 0 3px; color: #8fc6ff; }
-            QTableWidget { background-color: #111b25; gridline-color: #23384b; }
-            QHeaderView::section { background-color: #1a2a3a; color: #e4eefc; }
-            QPlainTextEdit, QListWidget, QLineEdit { background-color: #111b25; border: 1px solid #203041; }
-            QToolBar { background-color: #121d29; border-bottom: 1px solid #22384d; }
-            QTabWidget::pane { border: 1px solid #22384d; }
+"""
+            QMainWindow, QWidget { background-color: #0b1118; color: #ecf4ff; }
+            QGroupBox { border: 1px solid #1f3348; border-radius: 8px; margin-top: 8px; font-weight: 600; }
+            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #9fd1ff; }
+            QTableWidget { background-color: #0f1a25; gridline-color: #22384b; border-radius: 6px; }
+            QHeaderView::section { background-color: #17293b; color: #e4eefc; padding: 4px; border: 0px; }
+            QPlainTextEdit, QListWidget, QLineEdit { background-color: #0f1a25; border: 1px solid #243d54; border-radius: 6px; }
+            QToolBar { background-color: #101b28; border-bottom: 1px solid #22384d; spacing: 8px; }
+            QTabWidget::pane { border: 1px solid #22384d; border-radius: 6px; }
+            QPushButton { background-color: #1f6feb; color: white; border-radius: 6px; padding: 6px 12px; font-weight: 700; }
+            QPushButton:hover { background-color: #2c81ff; }
+            QFrame#socCard { background-color: #101e2d; border: 1px solid #28415a; border-radius: 10px; }
+            QLabel#socCardTitle { color: #86b9ee; font-size: 11px; text-transform: uppercase; }
+            QLabel#socCardValue { color: #f2f8ff; font-size: 24px; font-weight: 800; }
             """
         )
 
@@ -346,6 +396,19 @@ class MainWindow(QMainWindow):
         self.protocol_stats.setPlainText("\n".join(metrics.protocol_lines))
         self.globe_text.setPlainText("\n".join(metrics.geo_lines))
         self.topology_text.setPlainText("\n".join(metrics.topology_lines))
+        self._refresh_soc_cards(metrics.protocol_lines)
+
+
+    def _refresh_soc_cards(self, protocol_lines: list[str]) -> None:
+        total_events = len(self._rows)
+        critical_count = sum(1 for row in self._rows if row.risk_level in {"HIGH", "CRITICAL"})
+        unique_ips = len({row.packet.src_ip for row in self._rows})
+        protocol_top = protocol_lines[0].split(":")[0] if protocol_lines else "-"
+
+        self.card_events._value_label.setText(str(total_events))  # type: ignore[attr-defined]
+        self.card_critical._value_label.setText(str(critical_count))  # type: ignore[attr-defined]
+        self.card_unique_ips._value_label.setText(str(unique_ips))  # type: ignore[attr-defined]
+        self.card_protocol._value_label.setText(protocol_top)  # type: ignore[attr-defined]
 
     def _refresh_timeline_tab(self) -> None:
         lines = ["Timeline de eventos recientes (hasta 100):"]
@@ -385,8 +448,8 @@ class MainWindow(QMainWindow):
                     f"Longitud: {packet.length}",
                     f"Servicio: {packet.metadata.get('service', 'UNKNOWN')}",
                     "",
-                    "=== Metadatos ===",
-                    str(packet.metadata),
+                    "=== Metadatos (texto plano) ===",
+                    "; ".join(f"{k}={v}" for k, v in packet.metadata.items()) or "Sin metadatos",
                 ]
             )
         )
@@ -498,6 +561,53 @@ class MainWindow(QMainWindow):
             "Plataforma Linux 100% defensiva para monitoreo, detección y forense de red."
         )
         msg.exec()
+
+
+    def _show_runtime_settings_popup(self) -> None:
+        cfg_path = "sentinel_x.yaml"
+        settings = SettingsLoader.load(cfg_path)
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Configuración rápida (GUI)")
+        layout = QFormLayout(dialog)
+
+        interface_input = QLineEdit(settings.capture.interface)
+        bpf_input = QLineEdit(settings.capture.bpf_filter)
+        log_input = QLineEdit(settings.log_level)
+        max_conn_input = QLineEdit(str(settings.detection.max_connections_per_ip))
+
+        layout.addRow("Interfaz de captura", interface_input)
+        layout.addRow("Filtro BPF", bpf_input)
+        layout.addRow("Nivel de log", log_input)
+        layout.addRow("Máx conexiones/IP", max_conn_input)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+
+        def _save() -> None:
+            settings.capture.interface = interface_input.text().strip() or "any"
+            settings.capture.bpf_filter = bpf_input.text().strip()
+            settings.log_level = log_input.text().strip().upper() or "INFO"
+            try:
+                settings.detection.max_connections_per_ip = max(1, int(max_conn_input.text().strip()))
+            except ValueError:
+                QMessageBox.warning(dialog, "Configuración", "Máx conexiones/IP debe ser número entero.")
+                return
+            payload = {
+                "app_name": settings.app_name,
+                "log_level": settings.log_level,
+                "timezone": settings.timezone,
+                "database": asdict(settings.database),
+                "capture": asdict(settings.capture),
+                "detection": asdict(settings.detection),
+            }
+            Path(cfg_path).write_text(SettingsLoader._dumps(payload), encoding="utf-8")
+            self.statusBar().showMessage("Configuración actualizada desde GUI", 3000)
+            dialog.accept()
+
+        buttons.accepted.connect(_save)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        dialog.exec()
 
     def _show_view_options_popup(self) -> None:
         dialog = QDialog(self)
