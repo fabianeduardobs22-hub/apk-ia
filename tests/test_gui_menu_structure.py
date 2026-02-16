@@ -2,27 +2,19 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QTabWidget
+from PyQt6.QtWidgets import QApplication
 
 from sentinel_x_defense_suite.gui.main_window import MainWindow
 
 
-def test_main_window_menus_and_tabs() -> None:
+def test_sidebar_navigation_contains_all_modules_without_global_menu() -> None:
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
 
-    menu_titles = [action.text() for action in win.menuBar().actions()]
-    assert menu_titles == ["Archivo", "Vista", "Herramientas", "Ayuda"]
-
-    tabs = win.findChild(QTabWidget)
-    assert tabs is not None
-    tab_titles = [tabs.tabText(i) for i in range(tabs.count())]
-    assert "Inspector de paquete" in tab_titles
-    assert "Anomalías y riesgo" in tab_titles
-    assert "Respuesta defensiva" in tab_titles
-    assert "Timeline" in tab_titles
-    assert "Benchmark defensivo" in tab_titles
-    assert "Mission control" in tab_titles
+    assert win.nav_list is not None
+    modules = [win.nav_list.item(i).text() for i in range(win.nav_list.count())]
+    assert modules == MainWindow.MODULES
+    assert win.menuBar().actions() == []
 
     win.close()
     app.processEvents()
@@ -73,24 +65,23 @@ def test_right_operations_panel_lists_are_present(monkeypatch) -> None:
     app.processEvents()
 
 
-def test_module_menu_exposes_all_premium_sections() -> None:
+def test_sidebar_selection_routes_across_all_modules() -> None:
     app = QApplication.instance() or QApplication([])
     win = MainWindow()
 
-    items = [win.module_menu.item(i).text() for i in range(win.module_menu.count())]
-    assert items == [
-        "Dashboard SOC",
-        "Mapa táctico 3D",
-        "Conexiones en vivo",
-        "Servicios y exposición",
-        "Terminal operativa",
-        "Threat Hunting",
-        "Forense",
-        "Reportes",
-    ]
+    for idx, module in enumerate(MainWindow.MODULES):
+        win.nav_list.setCurrentRow(idx)
+        assert win.router.current_route() == module
 
-    win.module_menu.setCurrentRow(5)
-    assert win.page_stack.currentIndex() == 5
+    win.close()
+    app.processEvents()
+
+
+def test_regression_rejects_reintroduced_global_menubar_actions() -> None:
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    assert len(win.menuBar().actions()) == 0
 
     win.close()
     app.processEvents()
