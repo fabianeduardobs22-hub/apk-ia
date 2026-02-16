@@ -365,7 +365,6 @@ def pick_device(devices: List[Device]) -> Device | None:
         return None
     return devices[idx - 1]
 
-
 def cli() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Auditoría Bluetooth defensiva con interfaz interactiva.")
     parser.add_argument("--non-interactive", action="store_true", help="Ejecuta escaneo rápido y termina.")
