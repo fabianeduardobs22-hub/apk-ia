@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import platform
 import re
 import socket
 import subprocess
@@ -167,9 +168,12 @@ def build_runtime_snapshot() -> dict[str, Any]:
     by_ip = Counter(c["dst_ip"] for c in remote_hits)
 
     globe_lines = ["Mapa global de conexiones sospechosas (estimado):"]
+    globe_points: list[dict[str, Any]] = []
     for ip, count in by_ip.most_common(20):
         country, lat, lon = _geo_estimate(ip)
+        severity = 1 if count <= 1 else 2 if count <= 3 else 3 if count <= 6 else 4
         globe_lines.append(f"• {ip} ({country}) lat={lat} lon={lon} eventos={count}")
+        globe_points.append({"ip": ip, "country": country, "lat": lat, "lon": lon, "events": count, "severity": severity})
     if len(globe_lines) == 1:
         globe_lines.append("• Sin eventos remotos sospechosos detectados")
 
@@ -192,12 +196,99 @@ def build_runtime_snapshot() -> dict[str, Any]:
         "4) decktroy connection-guard --mode analyze --duration 30",
     ]
 
+    incoming_connections = [
+        c for c in active if c["state"] in {"ESTAB", "SYN-RECV", "SYN-SENT", "NEW"} and c["dst_port"] > 0
+    ]
+
+    service_versions = detect_service_versions()
+
     return {
         "services": services,
         "active_connections": active,
+        "incoming_connections": incoming_connections,
         "remote_suspicious": remote_hits,
         "globe_lines": globe_lines,
         "actions": actions,
         "exposure_lines": exposure_lines,
         "public_service_count": len(exposed_internet),
+        "service_versions": service_versions,
+        "globe_points": globe_points,
     }
+
+
+def detect_service_versions() -> list[dict[str, Any]]:
+    inventory = [
+        {"name": "python", "commands": [["python3", "--version"], ["python", "--version"]]},
+        {"name": "php", "commands": [["php", "-v"]]},
+        {"name": "mysql", "commands": [["mysql", "--version"]]},
+        {"name": "psql", "commands": [["psql", "--version"]]},
+        {"name": "redis", "commands": [["redis-server", "--version"]]},
+        {"name": "nginx", "commands": [["nginx", "-v"]]},
+        {"name": "apache2", "commands": [["apache2", "-v"]]},
+        {"name": "node", "commands": [["node", "--version"]]},
+        {"name": "docker", "commands": [["docker", "--version"]]},
+    ]
+
+    results: list[dict[str, Any]] = [
+        {
+            "service": "os",
+            "version": platform.platform(),
+            "active": True,
+            "connection_type": "local-system",
+            "command": "platform.platform()",
+            "port": "n/a",
+            "status": "running",
+        }
+    ]
+
+    for item in inventory:
+        detected = {
+            "service": item["name"],
+            "version": "not installed",
+            "active": False,
+            "connection_type": "local-service",
+            "command": "",
+            "port": "unknown",
+            "status": "inactive",
+        }
+        for command in item["commands"]:
+            try:
+                proc = subprocess.run(command, capture_output=True, text=True, timeout=4, check=False)
+            except Exception:
+                continue
+            text = (proc.stdout or proc.stderr or "").strip()
+            if proc.returncode == 0 and text:
+                detected["version"] = text.splitlines()[0][:240]
+                detected["active"] = True
+                detected["command"] = " ".join(command)
+                detected["status"] = "running"
+                break
+        results.append(detected)
+
+    return results
+
+
+def suggested_connection_defense_commands(connection: dict[str, Any]) -> list[str]:
+    dst_ip = connection.get("dst_ip", "<IP>")
+    dst_port = connection.get("dst_port", "<PORT>")
+    protocol = str(connection.get("protocol", "tcp")).replace("6", "")
+    return [
+        "Comandos sugeridos (defensivos de mitigación):",
+        f"sudo ufw deny out to {dst_ip} port {dst_port} proto {protocol}",
+        f"sudo iptables -A OUTPUT -d {dst_ip} -p {protocol} --dport {dst_port} -j DROP",
+        f"sudo ss -tunap | grep -E '{dst_ip}|:{dst_port}'",
+        f"sudo tcpdump -nn host {dst_ip} and port {dst_port} -c 100",
+        "sudo systemctl restart sentinel-x.service",
+    ]
+
+
+def suggested_service_admin_commands(service: dict[str, Any]) -> list[str]:
+    name = service.get("service", "service")
+    return [
+        "Comandos sugeridos (administración defensiva):",
+        f"systemctl status {name}",
+        f"sudo systemctl restart {name}",
+        f"sudo systemctl stop {name}",
+        f"sudo systemctl start {name}",
+        f"sudo journalctl -u {name} -n 100 --no-pager",
+    ]
