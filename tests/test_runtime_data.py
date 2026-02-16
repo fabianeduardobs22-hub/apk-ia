@@ -118,3 +118,13 @@ def test_build_runtime_snapshot_can_skip_service_versions(monkeypatch) -> None:
     monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
     snap = build_runtime_snapshot(include_service_versions=False)
     assert snap["service_versions"] == []
+
+
+def test_build_runtime_snapshot_always_includes_defense_playbook(monkeypatch) -> None:
+    def _fake_run(command, timeout=5):
+        return ""
+
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
+    snap = build_runtime_snapshot(include_service_versions=False)
+    assert "defense_playbook" in snap
+    assert isinstance(snap["defense_playbook"], dict)

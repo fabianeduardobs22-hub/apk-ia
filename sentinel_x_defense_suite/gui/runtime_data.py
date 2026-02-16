@@ -231,6 +231,7 @@ def build_runtime_snapshot(include_service_versions: bool = True) -> dict[str, A
     incoming_connections = [
         c for c in active if c["state"] in {"ESTAB", "SYN-RECV", "SYN-SENT", "NEW"} and c["dst_port"] > 0
     ]
+    defense_playbook = build_defense_playbook(exposed_internet, remote_hits, incoming_connections)
 
     service_versions = detect_service_versions() if include_service_versions else []
 
