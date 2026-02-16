@@ -1,0 +1,22 @@
+# Artefactos incluidos en el build profile: extended
+# Incluye todo lo del perfil core + recursos defensivos opcionales offline.
+README.md
+setup.py
+bin/sentinel-x
+bin/decktroy
+sentinel_x_defense_suite/__init__.py
+sentinel_x_defense_suite/core/*
+sentinel_x_defense_suite/security/*
+sentinel_x_defense_suite/analysis/*
+sentinel_x_defense_suite/detection/*
+sentinel_x_defense_suite/forensics/*
+sentinel_x_defense_suite/intel/*
+sentinel_x_defense_suite/scanner/*
+sentinel_x_defense_suite/plugins/*
+sentinel_x_defense_suite/config/*
+sentinel_x_defense_suite/models/*
+sentinel_x_defense_suite/capture/*
+sentinel_x_defense_suite/cli/*
+sentinel_x_defense_suite/resources/defensive_rules/*
+sentinel_x_defense_suite/resources/ioc_feeds/*
+sentinel_x_defense_suite/resources/forensic_templates/*

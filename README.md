@@ -2,6 +2,38 @@
 
 Suite defensiva para Linux con GUI nativa (PyQt6), captura de red, detección y análisis forense.
 
+## Perfiles de build (`core` y `extended`)
+
+El empaquetado ahora soporta dos perfiles controlados por `SENTINELX_BUILD_PROFILE` en `setup.py` y manifiestos explícitos en `packaging/`:
+
+- **`core`**: instalación base ligera para despliegues mínimos (dependencias base de parsing/configuración y módulos principales).
+- **`extended`**: incluye lo de `core` y añade recursos defensivos opcionales offline para operación avanzada:
+  - reglas defensivas (`resources/defensive_rules/`),
+  - IOC feeds offline (`resources/ioc_feeds/`),
+  - plantillas forenses (`resources/forensic_templates/`).
+
+Manifiestos de control de artefactos:
+
+- `packaging/profile-core.txt`
+- `packaging/profile-extended.txt`
+
+Ejemplos:
+
+```bash
+# Build base (por defecto)
+SENTINELX_BUILD_PROFILE=core python -m build
+
+# Build extendido
+SENTINELX_BUILD_PROFILE=extended python -m build
+```
+
+### Justificación funcional del tamaño
+
+- El perfil **`core`** prioriza footprint reducido para instalación rápida, menor superficie de dependencias y ejecución en hosts con recursos limitados.
+- El perfil **`extended`** crece en tamaño de manera deliberada porque incorpora inteligencia defensiva y material forense usable sin conectividad externa, lo que mejora respuesta ante incidentes y análisis post-mortem.
+- En CI puede validarse con `scripts/check_artifact_size.py`, que reporta tamaño final y falla solo cuando el artefacto queda fuera del rango acordado por perfil.
+
+
 ## Instalación rápida automática (archivo único)
 
 ```bash
