@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QFont
+from PyQt6.QtGui import QAction, QColor, QFont, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -20,6 +21,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -37,7 +39,11 @@ from PyQt6.QtWidgets import (
 
 from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.core.capability_matrix import default_capability_matrix, summarize_matrix
-from sentinel_x_defense_suite.gui.runtime_data import build_runtime_snapshot
+from sentinel_x_defense_suite.gui.runtime_data import (
+    build_runtime_snapshot,
+    suggested_connection_defense_commands,
+    suggested_service_admin_commands,
+)
 from sentinel_x_defense_suite.gui.viewmodels import RowMetrics, compute_dashboard_metrics
 from sentinel_x_defense_suite.models.events import PacketRecord
 
@@ -52,12 +58,89 @@ class ConnectionViewRow:
     recommendation: str
 
 
+class TacticalGlobeWidget(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(250)
+        self._rotation = 0.0
+        self._points: list[dict[str, float | str | int]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance_rotation)
+        self._timer.start(80)
+
+    def set_points(self, points: list[dict[str, float | str | int]]) -> None:
+        self._points = points[:120]
+        self.update()
+
+    def _advance_rotation(self) -> None:
+        self._rotation = (self._rotation + 1.8) % 360.0
+        self.update()
+
+    def _project(self, lat: float, lon: float, radius: float) -> tuple[float, float, float]:
+        lat_r = math.radians(lat)
+        lon_r = math.radians(lon + self._rotation)
+        x = radius * math.cos(lat_r) * math.sin(lon_r)
+        y = radius * math.sin(lat_r)
+        z = math.cos(lat_r) * math.cos(lon_r)
+        return x, y, z
+
+    def paintEvent(self, event: object) -> None:  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w = self.width()
+        h = self.height()
+        radius = min(w, h) * 0.38
+        cx = w / 2
+        cy = h / 2
+
+        gradient = QRadialGradient(cx - radius * 0.35, cy - radius * 0.35, radius * 1.25)
+        gradient.setColorAt(0.0, QColor('#4db4ff'))
+        gradient.setColorAt(0.35, QColor('#1f6feb'))
+        gradient.setColorAt(1.0, QColor('#0b1622'))
+        painter.setPen(QPen(QColor('#5fc9ff'), 2))
+        painter.setBrush(gradient)
+        painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
+
+        painter.setPen(QPen(QColor('#5ba9e6'), 1))
+        for line_lat in (-60, -30, 0, 30, 60):
+            ry = radius * math.cos(math.radians(line_lat))
+            y = cy + radius * math.sin(math.radians(line_lat))
+            painter.drawEllipse(int(cx - ry), int(y - ry * 0.22), int(ry * 2), int(ry * 0.44))
+
+        painter.setPen(QPen(QColor('#9ed8ff'), 1))
+        for line_lon in range(0, 360, 30):
+            lon_r = math.radians(line_lon + self._rotation)
+            x = radius * math.sin(lon_r)
+            painter.drawLine(int(cx + x), int(cy - radius), int(cx + x), int(cy + radius))
+
+        for point in self._points:
+            lat = float(point.get('lat', 0.0))
+            lon = float(point.get('lon', 0.0))
+            severity = int(point.get('severity', 1))
+            _, _, z = self._project(lat, lon, radius)
+            if z <= -0.03:
+                continue
+            x, y, _ = self._project(lat, lon, radius)
+            px = cx + x
+            py = cy - y
+            color = QColor('#77e4ff') if severity <= 2 else QColor('#ffd166') if severity == 3 else QColor('#ff5a5a')
+            size = 4 + severity
+            painter.setPen(QPen(color, 1))
+            painter.setBrush(color)
+            painter.drawEllipse(int(px - size / 2), int(py - size / 2), size, size)
+
+        painter.setPen(QColor('#d9eeff'))
+        painter.drawText(12, 20, 'Globo táctico (simulación 3D defensiva)')
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("DECKTROY · SENTINEL X DEFENSE SUITE")
         self.resize(1820, 1020)
         self._rows: list[ConnectionViewRow] = []
+        self._runtime_snapshot: dict[str, object] = {}
         self._build_ui()
         self._apply_dark_theme()
         self._runtime_timer = QTimer(self)
@@ -76,9 +159,15 @@ class MainWindow(QMainWindow):
 
         self.sidebar = self._build_sidebar()
         workspace = self._build_workspace()
+        self.operations_panel = self._build_right_operations_panel()
+
+        center = QSplitter(Qt.Orientation.Horizontal)
+        center.addWidget(workspace)
+        center.addWidget(self.operations_panel)
+        center.setSizes([1350, 500])
 
         root_layout.addWidget(self.sidebar, 1)
-        root_layout.addWidget(workspace, 5)
+        root_layout.addWidget(center, 5)
         self.setCentralWidget(root)
 
         status = QStatusBar()
@@ -281,6 +370,65 @@ class MainWindow(QMainWindow):
         grid.addWidget(cards_widget, 0, 0)
         grid.addWidget(center_split, 1, 0)
         return workspace
+
+
+    def _build_right_operations_panel(self) -> QWidget:
+        panel = QGroupBox("Centro operacional (panel derecho)")
+        layout = QVBoxLayout(panel)
+
+        self.ops_tabs = QTabWidget()
+
+        summary_tab = QWidget()
+        summary_layout = QVBoxLayout(summary_tab)
+        self.features_list = QListWidget()
+        self.features_list.addItems(
+            [
+                "Globo 3D táctico de ciberataques",
+                "Conexiones entrantes y análisis profundo",
+                "Inventario de versiones y estado de servicios",
+                "Comandos defensivos de mitigación",
+                "Módulo de investigación forense y timeline",
+                "Alertas de alta prioridad en tiempo real",
+                "Vista SOC ejecutiva de riesgo",
+            ]
+        )
+        summary_layout.addWidget(QLabel("Todas las funciones del programa"))
+        summary_layout.addWidget(self.features_list)
+
+        globe_tab = QWidget()
+        globe_layout = QVBoxLayout(globe_tab)
+        self.globe_widget = TacticalGlobeWidget()
+        self.earth_globe_view = QPlainTextEdit()
+        self.earth_globe_view.setReadOnly(True)
+        self.earth_globe_view.setPlainText(
+            "Visor de inteligencia geográfica:\n"
+            "- La esfera rota automáticamente para inspección visual.\n"
+            "- Los puntos se colorean por severidad de eventos remotos."
+        )
+        globe_layout.addWidget(self.globe_widget)
+        globe_layout.addWidget(self.earth_globe_view)
+
+        connections_tab = QWidget()
+        connections_layout = QVBoxLayout(connections_tab)
+        self.incoming_connections_list = QListWidget()
+        self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+        connections_layout.addWidget(QLabel("Conexiones entrantes / activas (doble clic para informe ampliado)"))
+        connections_layout.addWidget(self.incoming_connections_list)
+
+        services_tab = QWidget()
+        services_layout = QVBoxLayout(services_tab)
+        self.service_versions_list = QListWidget()
+        self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        services_layout.addWidget(QLabel("Versiones, estado y administración de servicios"))
+        services_layout.addWidget(self.service_versions_list)
+
+        self.ops_tabs.addTab(summary_tab, "Funciones")
+        self.ops_tabs.addTab(globe_tab, "Globo 3D")
+        self.ops_tabs.addTab(connections_tab, "Conexiones")
+        self.ops_tabs.addTab(services_tab, "Servicios")
+
+        layout.addWidget(self.ops_tabs)
+        return panel
 
 
     def _build_soc_cards(self) -> QWidget:
@@ -621,6 +769,7 @@ class MainWindow(QMainWindow):
 
     def _refresh_runtime_watch(self) -> None:
         snapshot = build_runtime_snapshot()
+        self._runtime_snapshot = snapshot
 
         services = snapshot.get("services", [])
         if services:
@@ -645,6 +794,153 @@ class MainWindow(QMainWindow):
         self.globe_text.setPlainText("\n".join(snapshot.get("globe_lines", ["Conexiones geolocalizadas:\n• Sin datos"])))
         self.exposure_text.setPlainText("\n".join(snapshot.get("exposure_lines", ["Sin resumen de exposición"])))
         self.actions_text.setPlainText("\n".join(snapshot.get("actions", ["Sin recomendaciones disponibles"])))
+        self.earth_globe_view.setPlainText("\n".join(snapshot.get("globe_lines", ["Sin eventos geográficos"])))
+        globe_points = snapshot.get("globe_points", [])
+        if isinstance(globe_points, list):
+            self.globe_widget.set_points(globe_points)
+
+        self.incoming_connections_list.clear()
+        for conn in snapshot.get("incoming_connections", [])[:120]:
+            if not isinstance(conn, dict):
+                continue
+            label = (
+                f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')}"
+                f" -> {conn.get('dst_ip')}:{conn.get('dst_port')} ({conn.get('service', 'unknown')})"
+            )
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, conn)
+            self.incoming_connections_list.addItem(item)
+
+        self.service_versions_list.clear()
+        for service in snapshot.get("service_versions", [])[:120]:
+            if not isinstance(service, dict):
+                continue
+            state = "activo" if service.get("active") else "inactivo"
+            label = f"{service.get('service', 'unknown')} · {state} · {service.get('version', 'unknown')}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, service)
+            self.service_versions_list.addItem(item)
+
+
+    def _open_incoming_connection_detail(self, item: QListWidgetItem) -> None:
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, dict):
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Informe ampliado de conexión")
+        dialog.resize(980, 760)
+        layout = QVBoxLayout(dialog)
+
+        details = QPlainTextEdit()
+        details.setReadOnly(True)
+        details.setPlainText(
+            "\n".join(
+                [
+                    "=== Detalle de conexión seleccionada ===",
+                    f"Tipo de conexión: {payload.get('protocol', 'unknown').upper()} / {payload.get('state', 'UNKNOWN')}",
+                    f"Origen: {payload.get('src_ip')}:{payload.get('src_port')}",
+                    f"Destino: {payload.get('dst_ip')}:{payload.get('dst_port')}",
+                    f"Servicio detectado: {payload.get('service', 'unknown')}",
+                    "Resultado de escaneo: revisión heurística activa, correlacionar con IDS/SIEM.",
+                    f"Registro raw: {payload.get('raw', '')}",
+                    "",
+                    "Política: solo mitigación y defensa. No se permite contraataque activo.",
+                ]
+            )
+        )
+
+        commands = QPlainTextEdit()
+        commands.setReadOnly(True)
+        commands.setPlainText("\n".join(suggested_connection_defense_commands(payload)))
+
+        terminal = QLineEdit()
+        terminal.setPlaceholderText("Mini terminal defensiva: escriba un comando de verificación o mitigación")
+
+        result = QPlainTextEdit()
+        result.setReadOnly(True)
+
+        def _run_terminal_command() -> None:
+            cmd = terminal.text().strip()
+            if not cmd:
+                return
+            result.appendPlainText(f"$ {cmd}")
+            result.appendPlainText("Ejecución restringida desde GUI demo. Copie el comando y ejecútelo en terminal con permisos.")
+            result.appendPlainText("")
+            terminal.clear()
+
+        terminal.returnPressed.connect(_run_terminal_command)
+        run_btn = QPushButton("Enviar comando")
+        run_btn.clicked.connect(_run_terminal_command)
+
+        layout.addWidget(QLabel("Informe técnico"))
+        layout.addWidget(details, 3)
+        layout.addWidget(QLabel("Comandos sugeridos"))
+        layout.addWidget(commands, 2)
+        layout.addWidget(QLabel("Terminal de acciones defensivas"))
+        layout.addWidget(terminal)
+        layout.addWidget(run_btn)
+        layout.addWidget(result, 2)
+        dialog.exec()
+
+    def _open_service_version_detail(self, item: QListWidgetItem) -> None:
+        payload = item.data(Qt.ItemDataRole.UserRole)
+        if not isinstance(payload, dict):
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Detalle de servicio y versión")
+        dialog.resize(980, 760)
+        layout = QVBoxLayout(dialog)
+
+        info = QPlainTextEdit()
+        info.setReadOnly(True)
+        info.setPlainText(
+            "\n".join(
+                [
+                    "=== Servicio seleccionado ===",
+                    f"Servicio: {payload.get('service', 'unknown')}",
+                    f"Versión: {payload.get('version', 'unknown')}",
+                    f"Estado: {payload.get('status', 'unknown')}",
+                    f"Tipo de conexión: {payload.get('connection_type', 'local-service')}",
+                    f"Puerto asociado: {payload.get('port', 'unknown')}",
+                    f"Comando de detección: {payload.get('command', 'n/a')}",
+                ]
+            )
+        )
+
+        commands = QPlainTextEdit()
+        commands.setReadOnly(True)
+        commands.setPlainText("\n".join(suggested_service_admin_commands(payload)))
+
+        terminal = QLineEdit()
+        terminal.setPlaceholderText("Terminal para mantenimiento del servicio (diagnóstico/actualización)")
+
+        result = QPlainTextEdit()
+        result.setReadOnly(True)
+
+        def _run_terminal_command() -> None:
+            cmd = terminal.text().strip()
+            if not cmd:
+                return
+            result.appendPlainText(f"$ {cmd}")
+            result.appendPlainText("Comando capturado en modo seguro de GUI. Ejecútelo manualmente en shell de administración.")
+            result.appendPlainText("")
+            terminal.clear()
+
+        terminal.returnPressed.connect(_run_terminal_command)
+        run_btn = QPushButton("Ejecutar")
+        run_btn.clicked.connect(_run_terminal_command)
+
+        layout.addWidget(QLabel("Información de servicio"))
+        layout.addWidget(info, 3)
+        layout.addWidget(QLabel("Comandos útiles sugeridos"))
+        layout.addWidget(commands, 2)
+        layout.addWidget(QLabel("Terminal interactiva de mantenimiento"))
+        layout.addWidget(terminal)
+        layout.addWidget(run_btn)
+        layout.addWidget(result, 2)
+        dialog.exec()
 
 
     def _show_runtime_settings_popup(self) -> None:
