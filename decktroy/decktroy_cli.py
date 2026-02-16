@@ -891,12 +891,26 @@ def cmd_selftest(_: argparse.Namespace) -> int:
     return code
 
 
+def cmd_desktop(args: argparse.Namespace) -> int:
+    launch_cmd = [sys.executable, "-m", "sentinel_x_defense_suite.cli.app", *args.gui_args]
+
+    if args.root and os.geteuid() != 0:
+        if shutil.which("sudo"):
+            launch_cmd = ["sudo", "-E", *launch_cmd]
+            print("[decktroy] Elevando permisos con sudo para captura completa.")
+        else:
+            print("[decktroy] sudo no disponible; iniciando en modo usuario.")
+
+    proc = subprocess.run(launch_cmd, check=False)
+    return proc.returncode
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="decktroy",
         description="DECKTROY CLI para operaciones defensivas de seguridad en Linux.",
     )
-    sub = parser.add_subparsers(dest="action", required=True)
+    sub = parser.add_subparsers(dest="action", required=False)
 
     inventory = sub.add_parser("inventory", help="Recolecta inventario técnico y snapshot local.")
     inventory.add_argument("-o", "--output", help="Ruta de salida JSON.")
@@ -995,6 +1009,12 @@ def build_parser() -> argparse.ArgumentParser:
     selftest = sub.add_parser("selftest", help="Ejecuta verificación completa de módulos y comandos.")
     selftest.set_defaults(func=cmd_selftest)
 
+    desktop = sub.add_parser("desktop", help="Abre la GUI nativa de DECKTROY/SENTINEL X (sin navegador).")
+    desktop.add_argument("--root", dest="root", action="store_true", default=True, help="Iniciar con sudo cuando sea posible.")
+    desktop.add_argument("--no-root", dest="root", action="store_false", help="Iniciar sin elevación de privilegios.")
+    desktop.add_argument("gui_args", nargs=argparse.REMAINDER, help="Parámetros extra para la GUI (ej: --config sentinel_x.yaml).")
+    desktop.set_defaults(func=cmd_desktop)
+
     pb = sub.add_parser("playbook", help="Gestiona playbooks de respuesta defensiva.")
     pb_sub = pb.add_subparsers(dest="playbook_cmd", required=True)
 
@@ -1015,6 +1035,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+
+    if not args.action:
+        args = parser.parse_args(["desktop"])
 
     if args.action == "execute" and not args.exec_cmd:
         parser.error("Debe proporcionar un comando para execute")

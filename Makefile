@@ -1,10 +1,16 @@
 PYTHON ?= python3
 
-.PHONY: install test run gui lint package-deb
+.PHONY: install install-linux quickstart test run gui lint package-deb
 
 install:
 	$(PYTHON) -m pip install -r requirements.txt
 	$(PYTHON) -m pip install -e .
+
+install-linux:
+	bash packaging/install_sentinel_x.sh
+
+quickstart:
+	bash install_decktroy_linux.sh
 
 test:
 	pytest -q
