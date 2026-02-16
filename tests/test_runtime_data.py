@@ -11,6 +11,15 @@ def test_parse_listening_sockets_detects_open_service() -> None:
     assert services
     assert services[0]["port"] == 8080
     assert services[0]["process"] == "python3"
+    assert services[0]["service"] in {"http-alt", "http"}
+
+
+def test_parse_python_http_server_port() -> None:
+    raw = 'tcp LISTEN 0 5 0.0.0.0:8000 0.0.0.0:* users:(("python3",pid=321,fd=3))'
+    services = parse_listening_sockets(raw)
+    assert services
+    assert services[0]["port"] == 8000
+    assert services[0]["process"] == "python3"
 
 
 def test_parse_active_connections_detects_remote_peer() -> None:
@@ -34,6 +43,7 @@ def test_build_runtime_snapshot_uses_commands(monkeypatch) -> None:
     monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
     snap = build_runtime_snapshot()
     assert snap["services"][0]["port"] == 22
+    assert snap["services"][0]["service"] == "ssh"
     assert snap["remote_suspicious"][0]["dst_ip"] == "8.8.8.8"
 
 

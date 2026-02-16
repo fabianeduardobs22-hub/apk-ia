@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import socket
 import subprocess
 from collections import Counter
 from typing import Any
@@ -36,6 +37,37 @@ def _extract_ip_port(value: str) -> tuple[str, int]:
     return raw, 0
 
 
+def _detect_service_name(port: int, protocol: str) -> str:
+    known = {
+        22: "ssh",
+        53: "dns",
+        80: "http",
+        123: "ntp",
+        443: "https",
+        3306: "mysql",
+        5432: "postgresql",
+        6379: "redis",
+        8080: "http-alt",
+        8443: "https-alt",
+    }
+    if port in known:
+        return known[port]
+    try:
+        return socket.getservbyport(port, "udp" if protocol.startswith("udp") else "tcp")
+    except Exception:
+        return "unknown"
+
+
+def _extract_process_name(line: str) -> str:
+    proc_match = re.search(r'users:\(\("([^"]+)"', line)
+    if proc_match:
+        return proc_match.group(1)
+    proc_match = re.search(r'"([^"]+)"', line)
+    if proc_match:
+        return proc_match.group(1)
+    return "unknown"
+
+
 def parse_listening_sockets(raw_output: str) -> list[dict[str, Any]]:
     services: list[dict[str, Any]] = []
     if not raw_output:
@@ -51,11 +83,10 @@ def parse_listening_sockets(raw_output: str) -> list[dict[str, Any]]:
         proto = parts[0].lower()
         state = parts[1].upper() if len(parts) > 1 else "UNKNOWN"
         local_addr = parts[4]
-        process_text = " ".join(parts[6:]) if len(parts) > 6 else ""
 
         ip, port = _extract_ip_port(local_addr)
-        proc_match = re.search(r'"([^"]+)"', process_text)
-        process_name = proc_match.group(1) if proc_match else "unknown"
+        process_name = _extract_process_name(line)
+        service_name = _detect_service_name(port, proto)
 
         services.append(
             {
@@ -64,6 +95,7 @@ def parse_listening_sockets(raw_output: str) -> list[dict[str, Any]]:
                 "bind_ip": ip,
                 "port": port,
                 "process": process_name,
+                "service": service_name,
                 "raw": line,
             }
         )
@@ -98,6 +130,7 @@ def parse_active_connections(raw_output: str) -> list[dict[str, Any]]:
                 "src_port": src_port,
                 "dst_ip": dst_ip,
                 "dst_port": dst_port,
+                "service": _detect_service_name(dst_port, proto),
                 "raw": line,
             }
         )
@@ -146,7 +179,7 @@ def build_runtime_snapshot() -> dict[str, Any]:
     if exposed_internet:
         for svc in exposed_internet[:25]:
             exposure_lines.append(
-                f"• {svc['protocol'].upper()} {svc['bind_ip']}:{svc['port']} proceso={svc['process']}"
+                f"• {svc['protocol'].upper()} {svc['bind_ip']}:{svc['port']} svc={svc['service']} proc={svc['process']}"
             )
     else:
         exposure_lines.append("• No se detectaron servicios escuchando en todas las interfaces")

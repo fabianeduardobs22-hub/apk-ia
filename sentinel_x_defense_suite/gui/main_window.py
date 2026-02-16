@@ -136,14 +136,8 @@ class MainWindow(QMainWindow):
 
         self.quick_action_button = QPushButton("Evento demo")
         self.quick_action_button.clicked.connect(self._simulate_demo_event)
-        self.refresh_button = QPushButton("Refrescar ahora")
-        self.refresh_button.clicked.connect(self._refresh_runtime_watch)
-        self.contain_button = QPushButton("Playbook contención")
-        self.contain_button.clicked.connect(self._run_containment_playbook)
         toolbar.addSeparator()
         toolbar.addWidget(self.quick_action_button)
-        toolbar.addWidget(self.refresh_button)
-        toolbar.addWidget(self.contain_button)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _build_sidebar(self) -> QWidget:
@@ -298,9 +292,8 @@ class MainWindow(QMainWindow):
         self.card_critical = self._create_card("Críticos", "0")
         self.card_unique_ips = self._create_card("IPs únicas", "0")
         self.card_protocol = self._create_card("Protocolo top", "-", value_size=16)
-        self.card_exposed = self._create_card("Servicios públicos", "0", value_size=20)
 
-        for card in (self.card_events, self.card_critical, self.card_unique_ips, self.card_protocol, self.card_exposed):
+        for card in (self.card_events, self.card_critical, self.card_unique_ips, self.card_protocol):
             row.addWidget(card)
         return cards
 
@@ -451,65 +444,6 @@ class MainWindow(QMainWindow):
         self.card_critical._value_label.setText(str(critical_count))  # type: ignore[attr-defined]
         self.card_unique_ips._value_label.setText(str(unique_ips))  # type: ignore[attr-defined]
         self.card_protocol._value_label.setText(protocol_top)  # type: ignore[attr-defined]
-
-    def _refresh_runtime_watch(self) -> None:
-        snapshot = build_runtime_snapshot()
-
-        services = snapshot["services"][:60]
-        if services:
-            lines = ["PROTO  ESTADO   BIND                PUERTO  PROCESO"]
-            for svc in services:
-                lines.append(
-                    f"{svc['protocol']:<6} {svc['state']:<8} {svc['bind_ip']:<18} {svc['port']:<6} {svc['process']}"
-                )
-            self.services_text.setPlainText("\n".join(lines))
-        else:
-            self.services_text.setPlainText("No se detectaron sockets en escucha")
-
-        active = snapshot["active_connections"][:80]
-        if active:
-            lines = ["PROTO ESTADO     ORIGEN                 DESTINO"]
-            for conn in active:
-                lines.append(
-                    f"{conn['protocol']:<5} {conn['state']:<9} {conn['src_ip']}:{conn['src_port']} -> {conn['dst_ip']}:{conn['dst_port']}"
-                )
-            self.connections_text.setPlainText("\n".join(lines))
-        else:
-            self.connections_text.setPlainText("Sin conexiones activas detectadas")
-
-        self.globe_text.setPlainText("\n".join(snapshot["globe_lines"]))
-        self.actions_text.setPlainText("\n".join(snapshot["actions"]))
-        self.exposure_text.setPlainText("\n".join(snapshot["exposure_lines"]))
-        self.card_exposed._value_label.setText(str(snapshot["public_service_count"]))  # type: ignore[attr-defined]
-
-        mission_lines = [
-            "Centro de misión defensivo:",
-            f"- Servicios públicos detectados: {snapshot['public_service_count']}",
-            f"- Conexiones activas: {len(snapshot['active_connections'])}",
-            f"- Conexiones remotas sospechosas: {len(snapshot['remote_suspicious'])}",
-            "",
-            *snapshot["actions"],
-        ]
-        self.mission_tab.setPlainText("\n".join(mission_lines))
-
-        suspicious = snapshot["remote_suspicious"]
-        if suspicious:
-            top = suspicious[0]
-            self.statusBar().showMessage(
-                f"Monitoreo activo: conexiones remotas detectadas ({top['dst_ip']}:{top['dst_port']})",
-                2500,
-            )
-
-    def _run_containment_playbook(self) -> None:
-        commands = [
-            "sudo ss -tulpen | sort",
-            "sudo ufw status numbered",
-            "sudo journalctl -n 200 --no-pager | grep -Ei 'failed|invalid|denied|attack'",
-            "decktroy connection-guard --mode analyze --duration 60",
-        ]
-        QApplication.clipboard().setText("\n".join(commands))
-        self.actions_text.setPlainText("Playbook copiado al portapapeles:\n" + "\n".join(commands))
-        self.statusBar().showMessage("Playbook de contención copiado", 3000)
 
     def _refresh_timeline_tab(self) -> None:
         lines = ["Timeline de eventos recientes (hasta 100):"]
@@ -731,26 +665,6 @@ class MainWindow(QMainWindow):
         layout.addRow(buttons)
         dialog.exec()
 
-    def _simulate_demo_event(self) -> None:
-        demo = PacketRecord.now(
-            src_ip="10.10.10.25",
-            dst_ip="198.51.100.42",
-            src_port=51324,
-            dst_port=443,
-            protocol="TCP",
-            length=512,
-            payload=b"demo_event",
-            metadata={"service": "HTTPS", "source": "demo"},
-        )
-        self.add_packet(
-            packet=demo,
-            risk_level="MEDIUM",
-            risk_score=47.5,
-            country="Unknown",
-            analysis_summary="Conexión periódica detectada; verificar comportamiento esperado.",
-            recommendation="Correlacionar con inventario y validar si el destino es autorizado.",
-        )
-        self.statusBar().showMessage("Evento de demostración agregado", 2500)
 
 
 def launch_gui() -> None:

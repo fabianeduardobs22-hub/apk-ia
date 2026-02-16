@@ -9,7 +9,6 @@ from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from sentinel_x_defense_suite.gui.main_window import MainWindow
-from sentinel_x_defense_suite.models.events import PacketRecord
 
 
 OUT_DIR = Path("artifacts/gui_previews")
@@ -27,27 +26,7 @@ def main() -> int:
     win.show()
     app.processEvents()
 
-    # Add one row so inspectors/context have data
-    demo = PacketRecord.now(
-        src_ip="10.0.0.7",
-        dst_ip="198.51.100.25",
-        src_port=53000,
-        dst_port=443,
-        protocol="TCP",
-        length=256,
-        payload=b"demo_payload",
-        metadata={"service": "HTTPS", "source": "preview"},
-    )
-    win.add_packet(
-        packet=demo,
-        risk_level="HIGH",
-        risk_score=82.3,
-        country="US",
-        analysis_summary="Actividad anómala en servicio expuesto.",
-        recommendation="Aplicar contención temporal y revisar autenticación.",
-    )
-    win.table.selectRow(0)
-    app.processEvents()
+    # Runtime data is loaded automatically from real host sockets/connections
 
     save_widget(win, "00_main_dashboard.png")
 
