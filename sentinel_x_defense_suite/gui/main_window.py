@@ -4,6 +4,7 @@ from dataclasses import asdict, dataclass
 import math
 from datetime import datetime, timezone
 from pathlib import Path
+import subprocess
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QFont, QPainter, QPen, QRadialGradient
@@ -29,6 +30,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStatusBar,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -145,7 +147,7 @@ class MainWindow(QMainWindow):
         self._apply_dark_theme()
         self._runtime_timer = QTimer(self)
         self._runtime_timer.timeout.connect(self._refresh_runtime_watch)
-        self._runtime_timer.start(3500)
+        self._runtime_timer.start(1000)
         self._refresh_runtime_watch()
 
     def _build_ui(self) -> None:
@@ -154,8 +156,8 @@ class MainWindow(QMainWindow):
 
         root = QWidget()
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(8, 8, 8, 8)
-        root_layout.setSpacing(8)
+        root_layout.setContentsMargins(6, 6, 6, 6)
+        root_layout.setSpacing(6)
 
         self.sidebar = self._build_sidebar()
         workspace = self._build_workspace()
@@ -173,6 +175,101 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         status.showMessage("Listo · Plataforma defensiva activa")
         self.setStatusBar(status)
+
+    def _switch_page(self, index: int) -> None:
+        if 0 <= index < self.page_stack.count():
+            self.page_stack.setCurrentIndex(index)
+
+    def _build_soc_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        self.sidebar = self._build_sidebar()
+        workspace = self._build_workspace()
+        layout.addWidget(self.sidebar, 1)
+        layout.addWidget(workspace, 4)
+        return page
+
+    def _build_globe_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.globe_widget = TacticalGlobeWidget()
+        self.earth_globe_view = QPlainTextEdit(readOnly=True)
+        self.earth_globe_view.setPlainText("Telemetría global en tiempo real")
+        layout.addWidget(QLabel("Mapa táctico 3D de eventos remotos"))
+        layout.addWidget(self.globe_widget, 3)
+        layout.addWidget(self.earth_globe_view, 2)
+        return page
+
+    def _build_connections_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.incoming_connections_list = QListWidget()
+        self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+        self.connection_terminal = QLineEdit()
+        self.connection_terminal.setPlaceholderText("Terminal interactiva: comando y Enter para ejecutar")
+        self.connection_terminal_output = QPlainTextEdit(readOnly=True)
+        self.connection_terminal.returnPressed.connect(
+            lambda: self._run_live_command(self.connection_terminal, self.connection_terminal_output)
+        )
+        layout.addWidget(QLabel("Conexiones entrantes (doble clic para informe)"))
+        layout.addWidget(self.incoming_connections_list, 3)
+        layout.addWidget(QLabel("Terminal de respuesta defensiva"))
+        layout.addWidget(self.connection_terminal)
+        layout.addWidget(self.connection_terminal_output, 2)
+        return page
+
+    def _build_services_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.service_versions_list = QListWidget()
+        self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        self.service_terminal = QLineEdit()
+        self.service_terminal.setPlaceholderText("Terminal de servicios: escribe comando y Enter")
+        self.service_terminal_output = QPlainTextEdit(readOnly=True)
+        self.service_terminal.returnPressed.connect(
+            lambda: self._run_live_command(self.service_terminal, self.service_terminal_output)
+        )
+        layout.addWidget(QLabel("Inventario de servicios y versiones"))
+        layout.addWidget(self.service_versions_list, 3)
+        layout.addWidget(QLabel("Terminal de administración"))
+        layout.addWidget(self.service_terminal)
+        layout.addWidget(self.service_terminal_output, 2)
+        return page
+
+    def _build_terminal_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.global_terminal_input = QLineEdit()
+        self.global_terminal_input.setPlaceholderText("Terminal operativa global (ejemplo: ss -tulpen)")
+        self.global_terminal_output = QPlainTextEdit(readOnly=True)
+        run_btn = QPushButton("Ejecutar")
+        run_btn.clicked.connect(lambda: self._run_live_command(self.global_terminal_input, self.global_terminal_output))
+        self.global_terminal_input.returnPressed.connect(
+            lambda: self._run_live_command(self.global_terminal_input, self.global_terminal_output)
+        )
+        layout.addWidget(QLabel("Terminal operativa en tiempo real"))
+        layout.addWidget(self.global_terminal_input)
+        layout.addWidget(run_btn)
+        layout.addWidget(self.global_terminal_output, 1)
+        return page
+
+    def _run_live_command(self, entry: QLineEdit, output: QPlainTextEdit) -> None:
+        command = entry.text().strip()
+        if not command:
+            return
+        output.appendPlainText(f"$ {command}")
+        try:
+            proc = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=8, check=False)
+            merged = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+            output.appendPlainText((merged.strip() or "(sin salida)")[:5000])
+            output.appendPlainText(f"[exit={proc.returncode}]\n")
+        except Exception as exc:
+            output.appendPlainText(f"Error ejecutando comando: {exc}\n")
+        entry.clear()
+        self._refresh_runtime_watch()
+
 
     def _build_menu_bar(self) -> None:
         bar = self.menuBar()
@@ -487,6 +584,9 @@ class MainWindow(QMainWindow):
             QTableWidget { background-color: #0f1a25; gridline-color: #22384b; border-radius: 6px; }
             QHeaderView::section { background-color: #17293b; color: #e4eefc; padding: 4px; border: 0px; }
             QPlainTextEdit, QListWidget, QLineEdit { background-color: #0f1a25; border: 1px solid #243d54; border-radius: 6px; }
+            QListWidget#navMenu { background-color: #0d1724; border: 1px solid #2b435c; padding: 6px; }
+            QListWidget#navMenu::item { padding: 10px 12px; margin: 3px; border-radius: 8px; font-weight: 600; }
+            QListWidget#navMenu::item:selected { background-color: #1f6feb; color: #ffffff; }
             QToolBar { background-color: #101b28; border-bottom: 1px solid #22384d; spacing: 8px; }
             QTabWidget::pane { border: 1px solid #22384d; border-radius: 6px; }
             QPushButton { background-color: #1f6feb; color: white; border-radius: 6px; padding: 6px 12px; font-weight: 700; }
