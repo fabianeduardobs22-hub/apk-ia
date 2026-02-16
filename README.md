@@ -80,6 +80,20 @@ export PATH="$HOME/.local/bin:$PATH"
 - `Decktroy` abre la GUI nativa de inmediato.
 - El sistema mantiene un enfoque 100% defensivo.
 
+## Arranque, Bash y capa GUI
+
+- `bin/sentinel-x` **se mantiene como wrapper Bash** para inicialización de entorno y automatización de arranque (`set -euo pipefail` + invocación del módulo CLI).
+- Bash se usa únicamente para bootstrap/orquestación del proceso de ejecución.
+- La **capa GUI principal** permanece implementada en Python/PyQt6 dentro de `sentinel_x_defense_suite/gui/` (no en Bash).
+
+### Rendimiento de arranque/comunicación aplicado
+
+Para mejorar responsividad sin mover la GUI fuera de `sentinel_x_defense_suite/gui/`, se aplicaron estas medidas:
+
+1. Carga diferida de módulos GUI pesados (`ThreatHuntingPage`, `IncidentResponsePage`, `ForensicsTimelinePage`) en el momento de construir cada vista.
+2. Tareas costosas de snapshot/runtime movidas a un worker con `ThreadPoolExecutor`, evitando bloquear el hilo principal de la UI.
+3. Se conserva `bin/sentinel-x` como wrapper Bash de entrada para inicialización/automatización del entorno.
+
 ## Plan de sprints UI/QA, métricas UX y demo SOC
 
 Se documentó el plan operativo de entregables por sprint, criterios de aceptación por módulo, pruebas de regresión, métricas UX/performance y checklist de demo final en:
