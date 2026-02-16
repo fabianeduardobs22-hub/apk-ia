@@ -2,24 +2,28 @@
 
 Suite defensiva para Linux con GUI nativa (PyQt6), captura de red, detección y análisis forense.
 
-## Instalación + ejecución automática (1 solo archivo)
+## Instalación rápida automática (archivo único)
 
 ```bash
-chmod +x install_and_run_decktroy.sh
-./install_and_run_decktroy.sh
+chmod +x install_decktroy_linux.sh
+./install_decktroy_linux.sh
 ```
 
-Esto instala todo en un entorno local aislado y al terminar abre la GUI automáticamente.
+Este script:
 
-## Comando directo
+- instala dependencias base del sistema según la distro,
+- copia el proyecto a `~/.local/share/decktroy/app` para que los recursos siempre estén en una ruta estable,
+- crea un entorno virtual en `~/.local/share/decktroy/venv`,
+- configura los comandos `Decktroy`, `decktroy` y `sentinel-x` en `~/.local/bin`,
+- abre la GUI automáticamente al finalizar.
 
-Después de instalar:
+## Comandos disponibles tras instalar
 
 ```bash
 Decktroy
 ```
 
-También disponible:
+También:
 
 ```bash
 decktroy
@@ -28,6 +32,11 @@ sentinel-x
 
 ## Notas operativas
 
+- Si `~/.local/bin` no está en tu `PATH`, agrega:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
 - `Decktroy` abre la GUI nativa de inmediato.
-- El modo desktop intenta elevación con `sudo` cuando aplica para habilitar captura avanzada.
 - El sistema mantiene un enfoque 100% defensivo.

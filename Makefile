@@ -7,7 +7,7 @@ install:
 	$(PYTHON) -m pip install -e .
 
 install-linux:
-	bash packaging/install_sentinel_x.sh
+	bash install_decktroy_linux.sh
 
 quickstart:
 	bash run_sentinel_x.sh
