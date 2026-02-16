@@ -786,6 +786,30 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, conn)
             self.incoming_connections_list.addItem(item)
 
+        if hasattr(self, "hunting_results"):
+            self.hunting_results.setPlainText(
+                "Threat Hunting Workspace\n"
+                f"- Conexiones activas evaluadas: {len(snapshot.get('active_connections', []))}\n"
+                f"- Destinos remotos sospechosos: {len(snapshot.get('remote_suspicious', []))}\n"
+                "- Recomendación: priorizar entidades con severidad alta y puertos de autenticación."
+            )
+        if hasattr(self, "forensics_timeline_text"):
+            self.forensics_timeline_text.setPlainText(
+                "Forense y cadena de custodia\n"
+                f"- Eventos geográficos correlacionados: {len(snapshot.get('globe_points', []))}\n"
+                f"- Conexiones entrantes observadas: {len(snapshot.get('incoming_connections', []))}\n"
+                "- Exporta evidencia y valida hash de registros para auditoría."
+            )
+        if hasattr(self, "reports_text"):
+            pb = snapshot.get("defense_playbook", {}) if isinstance(snapshot, dict) else {}
+            summary = pb.get("summary", "Sin resumen") if isinstance(pb, dict) else "Sin resumen"
+            self.reports_text.setPlainText(
+                "Reportes y cumplimiento\n"
+                f"- {summary}\n"
+                f"- Servicios expuestos: {snapshot.get('public_service_count', 0)}\n"
+                f"- Acciones sugeridas: {len(snapshot.get('actions', []))}"
+            )
+
         self.service_versions_list.clear()
         for service in self.contracts.snapshot.get("service_versions", [])[:120]:
             if not isinstance(service, dict):
