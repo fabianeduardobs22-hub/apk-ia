@@ -43,4 +43,4 @@ cp "${ROOT_DIR}/packaging/sentinel-x.desktop" "${DESKTOP_DIR}/sentinel-x.desktop
 echo "SENTINEL X instalado correctamente"
 echo "- Ejecutables: ${SENTINEL_PATH}, ${DECKTROY_PATH}, ${DECKTROY_UPPER_PATH}"
 echo "- Arranque inmediato GUI: Decktroy"
-echo "- Instalación y ejecución en un paso: ./install_decktroy_linux.sh"
+echo "- Instalación y ejecución en un paso: ./install_and_run_decktroy.sh"

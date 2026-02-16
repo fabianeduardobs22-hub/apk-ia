@@ -10,7 +10,7 @@ install-linux:
 	bash packaging/install_sentinel_x.sh
 
 quickstart:
-	bash install_decktroy_linux.sh
+	bash run_sentinel_x.sh
 
 test:
 	pytest -q
