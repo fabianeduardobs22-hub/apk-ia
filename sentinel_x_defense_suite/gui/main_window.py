@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import StrEnum
 import logging
 import math
 from pathlib import Path
@@ -165,6 +166,32 @@ class ViewRouter:
         return self._history[self._cursor]
 
 
+class ModuleRoute(StrEnum):
+    SOC = "soc"
+    THREAT_HUNTING = "threat_hunting"
+    INCIDENT_RESPONSE = "incident_response"
+    FORENSICS_TIMELINE = "forensics_timeline"
+
+
+ROUTE_LABELS: dict[ModuleRoute, str] = {
+    ModuleRoute.SOC: "SOC",
+    ModuleRoute.THREAT_HUNTING: "Threat Hunting",
+    ModuleRoute.INCIDENT_RESPONSE: "Incident Response",
+    ModuleRoute.FORENSICS_TIMELINE: "Forensics Timeline",
+}
+
+LEGACY_ROUTE_ALIASES: dict[str, ModuleRoute] = {
+    "SOC": ModuleRoute.SOC,
+    "Threat Hunting": ModuleRoute.THREAT_HUNTING,
+    "Incident Response": ModuleRoute.INCIDENT_RESPONSE,
+    "Forensics Timeline": ModuleRoute.FORENSICS_TIMELINE,
+    "dashboard": ModuleRoute.SOC,
+    "hunting": ModuleRoute.THREAT_HUNTING,
+    "incident_response": ModuleRoute.INCIDENT_RESPONSE,
+    "forensics": ModuleRoute.FORENSICS_TIMELINE,
+}
+
+
 class TacticalGlobeWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -230,7 +257,7 @@ class TacticalGlobeWidget(QWidget):
 
 
 class MainWindow(QMainWindow):
-    MODULES = ["SOC", "Threat Hunting", "Incident Response", "Forensics Timeline"]
+    MODULES = list(ModuleRoute)
 
     def __init__(self) -> None:
         super().__init__()
@@ -291,15 +318,15 @@ class MainWindow(QMainWindow):
 
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("navMenu")
-        self.nav_list.addItems(self.MODULES)
+        self.nav_list.addItems([ROUTE_LABELS[module] for module in self.MODULES])
         self.nav_list.currentRowChanged.connect(self._on_sidebar_navigation)
 
         self.page_stack = QStackedWidget()
         self.router = ViewRouter(self.page_stack, self.settings)
-        self.router.register_route("SOC", self._build_soc_page())
-        self.router.register_route("Threat Hunting", self._build_threat_hunting_page())
-        self.router.register_route("Incident Response", self._build_incident_response_page())
-        self.router.register_route("Forensics Timeline", self._build_forensics_page())
+        self.router.register_route(ModuleRoute.SOC.value, self._build_soc_page())
+        self.router.register_route(ModuleRoute.THREAT_HUNTING.value, self._build_threat_hunting_page())
+        self.router.register_route(ModuleRoute.INCIDENT_RESPONSE.value, self._build_incident_response_page())
+        self.router.register_route(ModuleRoute.FORENSICS_TIMELINE.value, self._build_forensics_page())
 
         self.shell_splitter.addWidget(self.nav_list)
         self.shell_splitter.addWidget(self.page_stack)
@@ -484,53 +511,6 @@ class MainWindow(QMainWindow):
         self.forensics_page = ForensicsTimelinePage()
         return self.forensics_page
 
-    def _switch_to_route(self, route_id: str) -> None:
-        if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
-            QMessageBox.warning(self, "Acceso denegado", "No tienes permisos para abrir esta vista.")
-            return
-
-        page = self._route_widgets.get(route_id)
-        if page is None:
-            page = self._router.build_page(route_id)
-            self._wire_page(route_id, page)
-            self._route_widgets[route_id] = page
-            self._route_indices[route_id] = self.page_stack.addWidget(page)
-
-        self.page_stack.setCurrentIndex(self._route_indices[route_id])
-        self.settings.setValue("ui/last_route", route_id)
-
-    def _wire_page(self, route_id: str, page: QWidget) -> None:
-        if route_id == "dashboard":
-            self.dashboard_page = page
-            self.table = page.table
-            self.details_tabs = page.details_tabs
-            self.ops_tabs = page.ops_tabs
-            self.incoming_connections_list = page.incoming_connections_list
-            self.service_versions_list = page.service_versions_list
-            self.globe_widget = page.globe_widget
-            self.table.itemSelectionChanged.connect(self._on_row_selected)
-            self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
-            self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
-        elif route_id == "hunting":
-            self.threat_hunting_page = page
-            self.threat_hunting_page.queryChanged.connect(self._on_threat_query)
-        elif route_id == "incident_response":
-            self.incident_response_page = page
-        elif route_id == "forensics":
-            self.forensics_page = page
-        elif route_id == "alerts":
-            self.alerts_page = page
-            self.alerts_page.ack_button.clicked.connect(lambda: self._run_action("alerts.acknowledge"))
-            self.alerts_page.escalate_button.clicked.connect(lambda: self._run_action("alerts.escalate"))
-
-    def _go_to_navigation_query(self) -> None:
-        route = self._router.route_for_query(self.nav_search_input.text())
-        if route is None:
-            self.statusBar().showMessage("No se encontró módulo/función", 3000)
-            return
-        self._switch_to_route(route.route_id)
-        self.statusBar().showMessage(f"Ruta abierta: {route.sidebar_label}", 3000)
-
     def _on_role_changed(self) -> None:
         self.current_role = Role(str(self.role_selector.currentData()))
         self.settings.setValue("ui/role", self.current_role.value)
@@ -544,7 +524,7 @@ class MainWindow(QMainWindow):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
             item.setHidden(False)
 
-            if not DEFAULT_POLICY.allows_view(self.current_role, module):
+            if not DEFAULT_POLICY.allows_view(self.current_role, module.value):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
 
         current = self.nav_list.currentRow()
@@ -553,7 +533,7 @@ class MainWindow(QMainWindow):
                 item = self.nav_list.item(idx)
                 if item is not None and (item.flags() & Qt.ItemFlag.ItemIsEnabled):
                     self.nav_list.setCurrentRow(idx)
-                    self.router.navigate(self.MODULES[idx])
+                    self.router.navigate(self.MODULES[idx].value)
                     break
 
         self._sync_rbac_actions()
@@ -586,8 +566,9 @@ class MainWindow(QMainWindow):
         if isinstance(soc_sizes, list) and soc_sizes:
             self.soc_splitter.setSizes([int(size) for size in soc_sizes])
 
-        last_module = str(self.settings.value("router/last_module", "SOC"))
-        self.router.navigate(last_module)
+        last_module_setting = str(self.settings.value("router/last_module", ModuleRoute.SOC.value))
+        last_module = self._normalize_route(last_module_setting) or ModuleRoute.SOC
+        self.router.navigate(last_module.value)
         self._sync_sidebar_with_route(last_module)
         self._update_router_buttons()
 
@@ -596,18 +577,19 @@ class MainWindow(QMainWindow):
         self.settings.setValue("ui/soc_splitter_sizes", self.soc_splitter.sizes())
         super().closeEvent(event)
 
-    def _sync_sidebar_with_route(self, route: str) -> None:
-        if route not in self.MODULES:
+    def _sync_sidebar_with_route(self, route: ModuleRoute | str) -> None:
+        normalized_route = self._normalize_route(route)
+        if normalized_route is None:
             return
         self._sidebar_syncing = True
-        self.nav_list.setCurrentRow(self.MODULES.index(route))
+        self.nav_list.setCurrentRow(self.MODULES.index(normalized_route))
         self._sidebar_syncing = False
 
     def _on_sidebar_navigation(self, index: int) -> None:
         if self._sidebar_syncing or not (0 <= index < len(self.MODULES)):
             return
         route = self.MODULES[index]
-        self.router.navigate(route)
+        self.router.navigate(route.value)
         self._update_router_buttons()
 
     def _go_back(self) -> None:
@@ -668,8 +650,6 @@ class MainWindow(QMainWindow):
         analysis_summary: str = "Sin anomalías detectadas",
         recommendation: str = "Mantener monitoreo continuo y registro forense.",
     ) -> None:
-        if not hasattr(self, "table"):
-            self._switch_to_route("dashboard")
         row_data = ConnectionViewRow(packet, risk_level.upper(), risk_score, country, analysis_summary, recommendation)
         self._rows.append(row_data)
         row = self.table.rowCount()
@@ -922,11 +902,22 @@ class MainWindow(QMainWindow):
             return
         self.threat_hunting_page.query_input.setText(target)
         self.threat_hunting_page.entity_pivot.setCurrentText("IP")
-        self.router.navigate("Threat Hunting")
-        self._sync_sidebar_with_route("Threat Hunting")
+        self.router.navigate(ModuleRoute.THREAT_HUNTING.value)
+        self._sync_sidebar_with_route(ModuleRoute.THREAT_HUNTING)
         self._update_router_buttons()
         self._on_threat_query(target)
         self._record_audit_action("pivot.alert_to_hunting", "Threat Hunting", f"entity={target}")
+
+    def _normalize_route(self, route: ModuleRoute | str) -> ModuleRoute | None:
+        if isinstance(route, ModuleRoute):
+            return route
+        legacy = LEGACY_ROUTE_ALIASES.get(route)
+        if legacy is not None:
+            return legacy
+        try:
+            return ModuleRoute(route)
+        except ValueError:
+            return None
 
     def _on_incident_template_applied(self, template_name: str) -> None:
         self._record_audit_action("ir.template.apply", "Incident Response", template_name)

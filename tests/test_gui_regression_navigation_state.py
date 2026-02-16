@@ -5,7 +5,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import QApplication
 
-from sentinel_x_defense_suite.gui.main_window import MainWindow
+from sentinel_x_defense_suite.gui.main_window import MainWindow, ModuleRoute
 
 
 def _patch_runtime_snapshot(monkeypatch) -> None:
@@ -39,15 +39,15 @@ def test_navigation_history_back_and_forward(monkeypatch) -> None:
     win.nav_list.setCurrentRow(1)
     win.nav_list.setCurrentRow(2)
 
-    assert win.router.current_route() == "Incident Response"
+    assert win.router.current_route() == ModuleRoute.INCIDENT_RESPONSE.value
     assert win.btn_back.isEnabled()
 
     win._go_back()
-    assert win.router.current_route() == "Threat Hunting"
+    assert win.router.current_route() == ModuleRoute.THREAT_HUNTING.value
     assert win.btn_forward.isEnabled()
 
     win._go_forward()
-    assert win.router.current_route() == "Incident Response"
+    assert win.router.current_route() == ModuleRoute.INCIDENT_RESPONSE.value
 
     win.close()
     app.processEvents()
@@ -72,7 +72,7 @@ def test_persistent_state_restores_last_module_and_tab(monkeypatch, tmp_path) ->
     second = MainWindow()
     second._runtime_timer.stop()
 
-    assert second.router.current_route() == "Forensics Timeline"
+    assert second.router.current_route() == ModuleRoute.FORENSICS_TIMELINE.value
     assert second.details_tabs.currentIndex() == 2
     assert second.search_input.text() == "dns beacon"
 

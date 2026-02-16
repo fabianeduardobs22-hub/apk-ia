@@ -37,11 +37,11 @@ def _rank(role: Role) -> int:
 
 DEFAULT_POLICY = AccessPolicy(
     view_roles={
-        "dashboard": Role.READ_ONLY,
+        "soc": Role.READ_ONLY,
         "alerts": Role.READ_ONLY,
-        "hunting": Role.ANALYST,
+        "threat_hunting": Role.ANALYST,
         "incident_response": Role.OPERATOR,
-        "forensics": Role.ANALYST,
+        "forensics_timeline": Role.ANALYST,
     },
     action_roles={
         "alerts.acknowledge": Role.ANALYST,
