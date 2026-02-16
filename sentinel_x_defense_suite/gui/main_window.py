@@ -12,7 +12,6 @@ from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
-    QCompleter,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -38,8 +37,7 @@ from PyQt6.QtWidgets import (
 
 from sentinel_x_defense_suite.capture.engine import resolve_capture_status
 from sentinel_x_defense_suite.config.settings import SettingsLoader
-from sentinel_x_defense_suite.gui.navigation.rbac import DEFAULT_POLICY, ROLE_LABELS, Role
-from sentinel_x_defense_suite.gui.navigation.router import GuiRouter, RouteEntry
+from sentinel_x_defense_suite.gui.navigation.rbac import DEFAULT_POLICY, Role
 from sentinel_x_defense_suite.gui.runtime_data import build_incremental_runtime_snapshot
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
@@ -504,15 +502,6 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_popup)
         menu_help.addAction(about_action)
 
-    def _build_theme_dialog(self) -> None:
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Tema premium")
-        form = QFormLayout(dialog)
-        selector = QComboBox()
-        for theme in THEMES.values():
-            selector.addItem(theme.name, theme.key)
-        selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "dark_premium"))))
-
     def _switch_to_route(self, route_id: str) -> None:
         if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
             QMessageBox.warning(self, "Acceso denegado", "No tienes permisos para abrir esta vista.")
@@ -564,6 +553,29 @@ class MainWindow(QMainWindow):
         self.current_role = Role(str(self.role_selector.currentData()))
         self.settings.setValue("ui/role", self.current_role.value)
         self._populate_navigation()
+
+    def _populate_navigation(self) -> None:
+        for idx, module in enumerate(self.MODULES):
+            item = self.nav_list.item(idx)
+            if item is None:
+                continue
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEnabled)
+            item.setHidden(False)
+
+            if not DEFAULT_POLICY.allows_view(self.current_role, module):
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
+
+        current = self.nav_list.currentRow()
+        if current < 0 or not self.nav_list.item(current) or not (self.nav_list.item(current).flags() & Qt.ItemFlag.ItemIsEnabled):
+            for idx in range(self.nav_list.count()):
+                item = self.nav_list.item(idx)
+                if item is not None and (item.flags() & Qt.ItemFlag.ItemIsEnabled):
+                    self.nav_list.setCurrentRow(idx)
+                    self.router.navigate(self.MODULES[idx])
+                    break
+
+        self._sync_rbac_actions()
+        self._update_router_buttons()
 
     def _sync_rbac_actions(self) -> None:
         self.quick_action_button.setEnabled(DEFAULT_POLICY.allows_action(self.current_role, "demo.event.generate"))
@@ -825,6 +837,8 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, conn)
             self.incoming_connections_list.addItem(item)
+
+        snapshot = self.contracts.snapshot
 
         if hasattr(self, "hunting_results"):
             self.hunting_results.setPlainText(

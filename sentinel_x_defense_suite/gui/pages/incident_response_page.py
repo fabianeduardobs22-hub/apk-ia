@@ -6,12 +6,17 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
+    QTableWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from sentinel_x_defense_suite.gui.sections.incident_response.models import ResponseTask
+from sentinel_x_defense_suite.gui.sections.workflow import DrillDownWorkflowWidget, ModuleExportToolbar, export_records
 from sentinel_x_defense_suite.gui.widgets.ui_components import ActionDrawer, MetricTile, RiskCard, TimelineRow
 from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
 
@@ -68,6 +73,9 @@ class IncidentResponsePage(QWidget):
         templates_layout.addStretch(1)
         root.addWidget(templates)
 
+        self.export_toolbar = ModuleExportToolbar()
+        root.addWidget(self.export_toolbar)
+
         kpi_row = QHBoxLayout()
         self.exec_tile = MetricTile("Playbooks ejecutados", "0")
         kpi_row.addWidget(self.exec_tile)
@@ -83,10 +91,12 @@ class IncidentResponsePage(QWidget):
             "Notificar a legal y compliance",
         ]:
             QListWidgetItem(item, self.checklist)
+        root.addWidget(self.checklist)
 
         self.execution_table = QTableWidget(0, 4)
         self.execution_table.setHorizontalHeaderLabels(["Playbook", "Modo", "Estado", "Badge"])
         self.execution_table.setSortingEnabled(True)
+        root.addWidget(self.execution_table)
 
         self.workflow = DrillDownWorkflowWidget()
         root.addWidget(self.workflow)
@@ -106,17 +116,37 @@ class IncidentResponsePage(QWidget):
 
         self.run_containment.clicked.connect(lambda: self._execute("Containment"))
         self.run_eradication.clicked.connect(lambda: self._execute("Eradication"))
+        self.apply_template_button.clicked.connect(self._apply_template)
         self.export_toolbar.exportRequested.connect(self._export)
         self.workflow.actionRequested.connect(self._on_action_requested)
 
     def _load_default_tasks(self) -> None:
         self._records = [
             ResponseTask("ir-1", "Contención", "SOC L2", "pending", ["Host con beacon C2"], "Aislar host"),
-            ResponseTask("ir-2", "Contención", "SOC L2", "pending", ["Destino malicioso 203.0.113.44"], "Bloquear destino"),
+            ResponseTask(
+                "ir-2",
+                "Contención",
+                "SOC L2",
+                "pending",
+                ["Destino malicioso 203.0.113.44"],
+                "Bloquear destino",
+            ),
             ResponseTask("ir-3", "Coordinación", "IR Lead", "pending", ["Caso regulatorio"], "Elevar incidente"),
-            ResponseTask("ir-4", "Seguimiento", "Service Desk", "pending", ["Remediación en progreso"], "Abrir ticket"),
+            ResponseTask(
+                "ir-4",
+                "Seguimiento",
+                "Service Desk",
+                "pending",
+                ["Remediación en progreso"],
+                "Abrir ticket",
+            ),
         ]
         self.workflow.set_records([record.to_drilldown() for record in self._records])
+
+    def _apply_template(self) -> None:
+        template = self.template_selector.currentText()
+        self.templateApplied.emit(template)
+        self.status.setText(f"Plantilla aplicada: {template}")
 
     def _execute(self, playbook: str) -> None:
         mode = "SAFE" if self.safe_mode.isChecked() else "LIVE"
