@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+import logging
 import math
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 import subprocess
@@ -28,6 +30,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStatusBar,
     QStackedWidget,
@@ -42,12 +45,15 @@ from PyQt6.QtWidgets import (
 from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.core.capability_matrix import default_capability_matrix, summarize_matrix
 from sentinel_x_defense_suite.gui.runtime_data import (
-    build_runtime_snapshot,
+    build_incremental_runtime_snapshot,
     suggested_connection_defense_commands,
     suggested_service_admin_commands,
 )
 from sentinel_x_defense_suite.gui.viewmodels import RowMetrics, compute_dashboard_metrics
 from sentinel_x_defense_suite.models.events import PacketRecord
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -143,6 +149,18 @@ class MainWindow(QMainWindow):
         self.resize(1820, 1020)
         self._rows: list[ConnectionViewRow] = []
         self._runtime_snapshot: dict[str, object] = {}
+        self._runtime_incremental_snapshot: dict[str, object] = {}
+        self._runtime_render_state: dict[str, str] = {}
+        self._incoming_index: dict[str, QListWidgetItem] = {}
+        self._services_index: dict[str, QListWidgetItem] = {}
+        self._incoming_page = 0
+        self._services_page = 0
+        self._incoming_page_size = 50
+        self._services_page_size = 50
+        self._last_refresh_started_at: float | None = None
+        self._fps_samples: list[float] = []
+        self._loaded_modules: set[str] = {"summary", "connections"}
+        self._timeline_loaded = False
         self._build_ui()
         self._apply_dark_theme()
         self._runtime_timer = QTimer(self)
@@ -436,7 +454,7 @@ class MainWindow(QMainWindow):
         self.table.customContextMenuRequested.connect(self._on_table_context_menu)
         self.table.itemSelectionChanged.connect(self._on_row_selected)
 
-        tabs = QTabWidget()
+        self.center_tabs = QTabWidget()
         self.packet_inspector = QPlainTextEdit(readOnly=True)
         self.anomaly_inspector = QPlainTextEdit(readOnly=True)
         self.response_inspector = QPlainTextEdit(readOnly=True)
@@ -445,12 +463,13 @@ class MainWindow(QMainWindow):
         self.mission_tab = QPlainTextEdit(readOnly=True)
         self._refresh_capability_tab()
 
-        tabs.addTab(self.packet_inspector, "Inspector de paquete")
-        tabs.addTab(self.anomaly_inspector, "Anomalías y riesgo")
-        tabs.addTab(self.response_inspector, "Respuesta defensiva")
-        tabs.addTab(self.timeline_tab, "Timeline")
-        tabs.addTab(self.capability_tab, "Benchmark defensivo")
-        tabs.addTab(self.mission_tab, "Mission control")
+        self.center_tabs.addTab(self.packet_inspector, "Inspector de paquete")
+        self.center_tabs.addTab(self.anomaly_inspector, "Anomalías y riesgo")
+        self.center_tabs.addTab(self.response_inspector, "Respuesta defensiva")
+        self.center_tabs.addTab(self.timeline_tab, "Timeline")
+        self.center_tabs.addTab(self.capability_tab, "Benchmark defensivo")
+        self.center_tabs.addTab(self.mission_tab, "Mission control")
+        self.center_tabs.currentChanged.connect(self._on_center_tab_changed)
 
         self.hex_ascii = QPlainTextEdit()
         self.hex_ascii.setReadOnly(True)
@@ -460,7 +479,7 @@ class MainWindow(QMainWindow):
 
         center_split = QSplitter(Qt.Orientation.Vertical)
         center_split.addWidget(self.table)
-        center_split.addWidget(tabs)
+        center_split.addWidget(self.center_tabs)
         center_split.addWidget(self.hex_ascii)
         center_split.setSizes([520, 260, 220])
 
@@ -474,6 +493,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(panel)
 
         self.ops_tabs = QTabWidget()
+        self.ops_tabs.currentChanged.connect(self._on_ops_tab_changed)
 
         summary_tab = QWidget()
         summary_layout = QVBoxLayout(summary_tab)
@@ -495,13 +515,10 @@ class MainWindow(QMainWindow):
         globe_tab = QWidget()
         globe_layout = QVBoxLayout(globe_tab)
         self.globe_widget = TacticalGlobeWidget()
+        self.globe_widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.earth_globe_view = QPlainTextEdit()
         self.earth_globe_view.setReadOnly(True)
-        self.earth_globe_view.setPlainText(
-            "Visor de inteligencia geográfica:\n"
-            "- La esfera rota automáticamente para inspección visual.\n"
-            "- Los puntos se colorean por severidad de eventos remotos."
-        )
+        self.earth_globe_view.setPlainText("Globo táctico pendiente de carga (abra esta pestaña para activarlo)")
         globe_layout.addWidget(self.globe_widget)
         globe_layout.addWidget(self.earth_globe_view)
 
@@ -509,15 +526,37 @@ class MainWindow(QMainWindow):
         connections_layout = QVBoxLayout(connections_tab)
         self.incoming_connections_list = QListWidget()
         self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+        self.connections_page_label = QLabel("Página 1")
+        self.btn_connections_prev = QPushButton("◀")
+        self.btn_connections_next = QPushButton("▶")
+        self.btn_connections_prev.clicked.connect(lambda: self._change_connections_page(-1))
+        self.btn_connections_next.clicked.connect(lambda: self._change_connections_page(1))
+        conn_pager = QHBoxLayout()
+        conn_pager.addWidget(self.btn_connections_prev)
+        conn_pager.addWidget(self.connections_page_label)
+        conn_pager.addWidget(self.btn_connections_next)
+        conn_pager.addStretch(1)
         connections_layout.addWidget(QLabel("Conexiones entrantes / activas (doble clic para informe ampliado)"))
         connections_layout.addWidget(self.incoming_connections_list)
+        connections_layout.addLayout(conn_pager)
 
         services_tab = QWidget()
         services_layout = QVBoxLayout(services_tab)
         self.service_versions_list = QListWidget()
         self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        self.services_page_label = QLabel("Página 1")
+        self.btn_services_prev = QPushButton("◀")
+        self.btn_services_next = QPushButton("▶")
+        self.btn_services_prev.clicked.connect(lambda: self._change_services_page(-1))
+        self.btn_services_next.clicked.connect(lambda: self._change_services_page(1))
+        svc_pager = QHBoxLayout()
+        svc_pager.addWidget(self.btn_services_prev)
+        svc_pager.addWidget(self.services_page_label)
+        svc_pager.addWidget(self.btn_services_next)
+        svc_pager.addStretch(1)
         services_layout.addWidget(QLabel("Versiones, estado y administración de servicios"))
         services_layout.addWidget(self.service_versions_list)
+        services_layout.addLayout(svc_pager)
 
         self.ops_tabs.addTab(summary_tab, "Funciones")
         self.ops_tabs.addTab(globe_tab, "Globo 3D")
@@ -657,7 +696,8 @@ class MainWindow(QMainWindow):
             self.table.setItem(row, col, item)
 
         self._refresh_sidebar_metrics()
-        self._refresh_timeline_tab()
+        if self._timeline_loaded:
+            self._refresh_timeline_tab()
         if row == 0:
             self.table.selectRow(0)
 
@@ -867,59 +907,250 @@ class MainWindow(QMainWindow):
         )
         self.statusBar().showMessage("Evento de demostración agregado", 2500)
 
+    def _render_text_if_changed(self, key: str, widget: QPlainTextEdit, content: str) -> None:
+        if self._runtime_render_state.get(key) == content:
+            return
+        widget.setPlainText(content)
+        self._runtime_render_state[key] = content
+
+    def _on_center_tab_changed(self, index: int) -> None:
+        if self.center_tabs.tabText(index) == "Timeline":
+            self._timeline_loaded = True
+            self._refresh_timeline_tab()
+
+    def _on_ops_tab_changed(self, index: int) -> None:
+        tab_name = self.ops_tabs.tabText(index)
+        if tab_name == "Globo 3D":
+            self._loaded_modules.add("globe")
+        elif tab_name == "Servicios":
+            self._loaded_modules.add("services")
+        elif tab_name == "Conexiones":
+            self._loaded_modules.add("connections")
+        self._refresh_runtime_watch()
+
+    def _row_key(self, row: dict[str, object], fields: tuple[str, ...]) -> str:
+        return "|".join(str(row.get(field, "")) for field in fields)
+
+    def _connection_label(self, conn: dict[str, object]) -> str:
+        return (
+            f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')}"
+            f" -> {conn.get('dst_ip')}:{conn.get('dst_port')} ({conn.get('service', 'unknown')})"
+        )
+
+    def _service_label(self, service: dict[str, object]) -> str:
+        state = "activo" if service.get("active") else "inactivo"
+        return f"{service.get('service', 'unknown')} · {state} · {service.get('version', 'unknown')}"
+
+    def _sync_list_item(
+        self,
+        list_widget: QListWidget,
+        row_index: dict[str, QListWidgetItem],
+        payload: dict[str, object],
+        row_id: str,
+        label: str,
+    ) -> None:
+        item = row_index.get(row_id)
+        if item is None:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, payload)
+            row_index[row_id] = item
+            return
+        if item.text() != label:
+            item.setText(label)
+        item.setData(Qt.ItemDataRole.UserRole, payload)
+
+    def _delete_list_item(self, list_widget: QListWidget, row_index: dict[str, QListWidgetItem], row_id: str) -> None:
+        item = row_index.pop(row_id, None)
+        if item is None:
+            return
+        row = list_widget.row(item)
+        if row >= 0:
+            list_widget.takeItem(row)
+
+    def _render_paginated_list(
+        self,
+        list_widget: QListWidget,
+        row_index: dict[str, QListWidgetItem],
+        full_rows: list[dict[str, object]],
+        page: int,
+        page_size: int,
+        pager_label: QLabel,
+        prev_btn: QPushButton,
+        next_btn: QPushButton,
+        id_fields: tuple[str, ...],
+        formatter,
+    ) -> int:
+        total_pages = max(1, math.ceil(len(full_rows) / page_size))
+        page = max(0, min(page, total_pages - 1))
+        pager_label.setText(f"Página {page + 1}/{total_pages} · total={len(full_rows)}")
+        prev_btn.setEnabled(page > 0)
+        next_btn.setEnabled(page < total_pages - 1)
+
+        visible_ids = {
+            self._row_key(row, id_fields)
+            for row in full_rows[page * page_size : (page + 1) * page_size]
+            if isinstance(row, dict)
+        }
+        for row_id in list(row_index.keys()):
+            if row_id not in visible_ids:
+                self._delete_list_item(list_widget, row_index, row_id)
+
+        current_visible_ids = set(row_index.keys())
+        ordered_ids: list[str] = []
+        for row in full_rows[page * page_size : (page + 1) * page_size]:
+            if not isinstance(row, dict):
+                continue
+            row_id = self._row_key(row, id_fields)
+            ordered_ids.append(row_id)
+            self._sync_list_item(list_widget, row_index, row, row_id, formatter(row))
+            if row_id not in current_visible_ids:
+                list_widget.addItem(row_index[row_id])
+
+        for position, row_id in enumerate(ordered_ids):
+            item = row_index[row_id]
+            if list_widget.row(item) != position:
+                list_widget.takeItem(list_widget.row(item))
+                list_widget.insertItem(position, item)
+
+        return page
+
+    def _change_connections_page(self, delta: int) -> None:
+        self._incoming_page = max(0, self._incoming_page + delta)
+        self._render_connections_list()
+
+    def _change_services_page(self, delta: int) -> None:
+        self._services_page = max(0, self._services_page + delta)
+        self._render_services_list()
+
+    def _render_connections_list(self) -> None:
+        full_rows = self._runtime_snapshot.get("incoming_connections", [])
+        if not isinstance(full_rows, list):
+            full_rows = []
+        self._incoming_page = self._render_paginated_list(
+            self.incoming_connections_list,
+            self._incoming_index,
+            full_rows,
+            self._incoming_page,
+            self._incoming_page_size,
+            self.connections_page_label,
+            self.btn_connections_prev,
+            self.btn_connections_next,
+            ("protocol", "src_ip", "src_port", "dst_ip", "dst_port", "state"),
+            self._connection_label,
+        )
+
+    def _render_services_list(self) -> None:
+        full_rows = self._runtime_snapshot.get("service_versions", [])
+        if not isinstance(full_rows, list):
+            full_rows = []
+        self._services_page = self._render_paginated_list(
+            self.service_versions_list,
+            self._services_index,
+            full_rows,
+            self._services_page,
+            self._services_page_size,
+            self.services_page_label,
+            self.btn_services_prev,
+            self.btn_services_next,
+            ("service",),
+            self._service_label,
+        )
+
     def _refresh_runtime_watch(self) -> None:
-        snapshot = build_runtime_snapshot()
+        started = time.perf_counter()
+        include_service_versions = "services" in self._loaded_modules
+        snapshot_pack = build_incremental_runtime_snapshot(
+            self._runtime_snapshot or None,
+            include_service_versions=include_service_versions,
+        )
+        snapshot = snapshot_pack.get("full_snapshot", {}) if isinstance(snapshot_pack, dict) else {}
+        incremental = snapshot_pack.get("incremental_snapshot", {}) if isinstance(snapshot_pack, dict) else {}
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        if not isinstance(incremental, dict):
+            incremental = {}
+
         self._runtime_snapshot = snapshot
+        self._runtime_incremental_snapshot = incremental
 
         services = snapshot.get("services", [])
-        if services:
+        if isinstance(services, list) and services:
             service_lines = [
                 f"• {svc['protocol'].upper()} {svc['bind_ip']}:{svc['port']} svc={svc['service']} proc={svc['process']}"
                 for svc in services[:25]
+                if isinstance(svc, dict)
             ]
-            self.services_text.setPlainText("\n".join(service_lines))
+            self._render_text_if_changed("services_text", self.services_text, "\n".join(service_lines))
         else:
-            self.services_text.setPlainText("Sin datos de servicios expuestos")
+            self._render_text_if_changed("services_text", self.services_text, "Sin datos de servicios expuestos")
 
         active = snapshot.get("active_connections", [])
-        if active:
+        if isinstance(active, list) and active:
             conn_lines = [
                 f"• {conn['state']} {conn['src_ip']}:{conn['src_port']} -> {conn['dst_ip']}:{conn['dst_port']} ({conn['service']})"
                 for conn in active[:25]
+                if isinstance(conn, dict)
             ]
-            self.connections_text.setPlainText("\n".join(conn_lines))
+            self._render_text_if_changed("connections_text", self.connections_text, "\n".join(conn_lines))
         else:
-            self.connections_text.setPlainText("Sin conexiones activas")
+            self._render_text_if_changed("connections_text", self.connections_text, "Sin conexiones activas")
 
-        self.globe_text.setPlainText("\n".join(snapshot.get("globe_lines", ["Conexiones geolocalizadas:\n• Sin datos"])))
-        self.exposure_text.setPlainText("\n".join(snapshot.get("exposure_lines", ["Sin resumen de exposición"])))
-        self.actions_text.setPlainText("\n".join(snapshot.get("actions", ["Sin recomendaciones disponibles"])))
-        self.earth_globe_view.setPlainText("\n".join(snapshot.get("globe_lines", ["Sin eventos geográficos"])))
-        globe_points = snapshot.get("globe_points", [])
-        if isinstance(globe_points, list):
-            self.globe_widget.set_points(globe_points)
+        module_start = time.perf_counter()
+        self._render_text_if_changed(
+            "globe_text",
+            self.globe_text,
+            "\n".join(snapshot.get("globe_lines", ["Conexiones geolocalizadas:\n• Sin datos"])),
+        )
+        self._render_text_if_changed(
+            "exposure_text",
+            self.exposure_text,
+            "\n".join(snapshot.get("exposure_lines", ["Sin resumen de exposición"])),
+        )
+        self._render_text_if_changed(
+            "actions_text",
+            self.actions_text,
+            "\n".join(snapshot.get("actions", ["Sin recomendaciones disponibles"])),
+        )
+        LOGGER.info("ui.render module=summary latency_ms=%.2f", (time.perf_counter() - module_start) * 1000.0)
 
-        self.incoming_connections_list.clear()
-        for conn in snapshot.get("incoming_connections", [])[:120]:
-            if not isinstance(conn, dict):
-                continue
-            label = (
-                f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')}"
-                f" -> {conn.get('dst_ip')}:{conn.get('dst_port')} ({conn.get('service', 'unknown')})"
+        if "globe" in self._loaded_modules:
+            module_start = time.perf_counter()
+            self._render_text_if_changed(
+                "earth_globe_view",
+                self.earth_globe_view,
+                "\n".join(snapshot.get("globe_lines", ["Sin eventos geográficos"])),
             )
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, conn)
-            self.incoming_connections_list.addItem(item)
+            globe_points = snapshot.get("globe_points", [])
+            if isinstance(globe_points, list):
+                self.globe_widget.set_points(globe_points)
+            LOGGER.info("ui.render module=globe latency_ms=%.2f", (time.perf_counter() - module_start) * 1000.0)
 
-        self.service_versions_list.clear()
-        for service in snapshot.get("service_versions", [])[:120]:
-            if not isinstance(service, dict):
-                continue
-            state = "activo" if service.get("active") else "inactivo"
-            label = f"{service.get('service', 'unknown')} · {state} · {service.get('version', 'unknown')}"
-            item = QListWidgetItem(label)
-            item.setData(Qt.ItemDataRole.UserRole, service)
-            self.service_versions_list.addItem(item)
+        if "connections" in self._loaded_modules:
+            module_start = time.perf_counter()
+            self._render_connections_list()
+            LOGGER.info("ui.render module=connections latency_ms=%.2f", (time.perf_counter() - module_start) * 1000.0)
+
+        if "services" in self._loaded_modules:
+            module_start = time.perf_counter()
+            self._render_services_list()
+            LOGGER.info("ui.render module=services latency_ms=%.2f", (time.perf_counter() - module_start) * 1000.0)
+
+        now = time.perf_counter()
+        if self._last_refresh_started_at is not None:
+            frame_delta = now - self._last_refresh_started_at
+            if frame_delta > 0:
+                self._fps_samples.append(1.0 / frame_delta)
+                self._fps_samples = self._fps_samples[-30:]
+        self._last_refresh_started_at = started
+
+        avg_fps = sum(self._fps_samples) / len(self._fps_samples) if self._fps_samples else 0.0
+        total_latency_ms = (time.perf_counter() - started) * 1000.0
+        LOGGER.info(
+            "ui.refresh latency_ms=%.2f fps=%.2f changed_sections=%s",
+            total_latency_ms,
+            avg_fps,
+            incremental.get("changed_sections", []),
+        )
 
 
     def _open_incoming_connection_detail(self, item: QListWidgetItem) -> None:

@@ -56,7 +56,10 @@ def test_right_operations_panel_lists_are_present(monkeypatch) -> None:
             "globe_points": [{"lat": 0.0, "lon": 0.0, "severity": 2}],
         }
 
-    monkeypatch.setattr("sentinel_x_defense_suite.gui.main_window.build_runtime_snapshot", _fake_snapshot)
+    def _fake_incremental(previous_snapshot=None, include_service_versions=True):
+        return {"full_snapshot": _fake_snapshot(), "incremental_snapshot": {"changed_sections": ["all"]}}
+
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.main_window.build_incremental_runtime_snapshot", _fake_incremental)
     win = MainWindow()
     win._refresh_runtime_watch()
 

@@ -2,12 +2,43 @@ from __future__ import annotations
 
 import hashlib
 import ipaddress
+import logging
 import platform
 import re
 import socket
 import subprocess
+import time
 from collections import Counter
 from typing import Any
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+def _row_identity(row: dict[str, Any], keys: tuple[str, ...]) -> str:
+    return "|".join(str(row.get(key, "")) for key in keys)
+
+
+def _index_rows(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    return {_row_identity(row, keys): row for row in rows if isinstance(row, dict)}
+
+
+def _compute_row_delta(
+    current_rows: list[dict[str, Any]],
+    previous_rows: list[dict[str, Any]],
+    keys: tuple[str, ...],
+) -> dict[str, list[dict[str, Any]]]:
+    current_index = _index_rows(current_rows, keys)
+    previous_index = _index_rows(previous_rows, keys)
+
+    added = [current_index[row_id] for row_id in current_index.keys() - previous_index.keys()]
+    removed = [previous_index[row_id] for row_id in previous_index.keys() - current_index.keys()]
+    updated = [
+        current_index[row_id]
+        for row_id in current_index.keys() & previous_index.keys()
+        if current_index[row_id] != previous_index[row_id]
+    ]
+    return {"added": added, "removed": removed, "updated": updated}
 
 
 def run_command(command: list[str], timeout: int = 5) -> str:
@@ -157,7 +188,8 @@ def _geo_estimate(ip: str) -> tuple[str, float, float]:
     return country, lat, lon
 
 
-def build_runtime_snapshot() -> dict[str, Any]:
+def build_runtime_snapshot(include_service_versions: bool = True) -> dict[str, Any]:
+    start = time.perf_counter()
     listening_raw = run_command(["ss", "-tulpenH"], timeout=8)
     active_raw = run_command(["ss", "-tunapH"], timeout=8)
 
@@ -200,9 +232,9 @@ def build_runtime_snapshot() -> dict[str, Any]:
         c for c in active if c["state"] in {"ESTAB", "SYN-RECV", "SYN-SENT", "NEW"} and c["dst_port"] > 0
     ]
 
-    service_versions = detect_service_versions()
+    service_versions = detect_service_versions() if include_service_versions else []
 
-    return {
+    snapshot = {
         "services": services,
         "active_connections": active,
         "incoming_connections": incoming_connections,
@@ -214,6 +246,69 @@ def build_runtime_snapshot() -> dict[str, Any]:
         "service_versions": service_versions,
         "globe_points": globe_points,
     }
+    elapsed_ms = round((time.perf_counter() - start) * 1000.0, 2)
+    LOGGER.info("runtime_data.build_runtime_snapshot latency_ms=%s include_service_versions=%s", elapsed_ms, include_service_versions)
+    return snapshot
+
+
+def build_incremental_runtime_snapshot(
+    previous_snapshot: dict[str, Any] | None,
+    include_service_versions: bool = True,
+) -> dict[str, Any]:
+    full_snapshot = build_runtime_snapshot(include_service_versions=include_service_versions)
+    if previous_snapshot is None:
+        return {
+            "full_snapshot": full_snapshot,
+            "incremental_snapshot": {
+                "services": {"added": full_snapshot["services"], "removed": [], "updated": []},
+                "active_connections": {"added": full_snapshot["active_connections"], "removed": [], "updated": []},
+                "incoming_connections": {"added": full_snapshot["incoming_connections"], "removed": [], "updated": []},
+                "service_versions": {"added": full_snapshot["service_versions"], "removed": [], "updated": []},
+                "changed_sections": [
+                    "services",
+                    "active_connections",
+                    "incoming_connections",
+                    "service_versions",
+                    "globe_lines",
+                    "actions",
+                    "exposure_lines",
+                    "globe_points",
+                    "public_service_count",
+                    "remote_suspicious",
+                ],
+            },
+        }
+
+    incremental_snapshot = {
+        "services": _compute_row_delta(full_snapshot.get("services", []), previous_snapshot.get("services", []), ("protocol", "bind_ip", "port")),
+        "active_connections": _compute_row_delta(
+            full_snapshot.get("active_connections", []),
+            previous_snapshot.get("active_connections", []),
+            ("protocol", "src_ip", "src_port", "dst_ip", "dst_port", "state"),
+        ),
+        "incoming_connections": _compute_row_delta(
+            full_snapshot.get("incoming_connections", []),
+            previous_snapshot.get("incoming_connections", []),
+            ("protocol", "src_ip", "src_port", "dst_ip", "dst_port", "state"),
+        ),
+        "service_versions": _compute_row_delta(
+            full_snapshot.get("service_versions", []),
+            previous_snapshot.get("service_versions", []),
+            ("service",),
+        ),
+    }
+    changed_sections: list[str] = []
+    for key in ("services", "active_connections", "incoming_connections", "service_versions"):
+        delta = incremental_snapshot[key]
+        if delta["added"] or delta["removed"] or delta["updated"]:
+            changed_sections.append(key)
+
+    for key in ("globe_lines", "actions", "exposure_lines", "globe_points", "public_service_count", "remote_suspicious"):
+        if full_snapshot.get(key) != previous_snapshot.get(key):
+            changed_sections.append(key)
+
+    incremental_snapshot["changed_sections"] = changed_sections
+    return {"full_snapshot": full_snapshot, "incremental_snapshot": incremental_snapshot}
 
 
 def detect_service_versions() -> list[dict[str, Any]]:
