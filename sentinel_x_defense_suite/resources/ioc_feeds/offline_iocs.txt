@@ -1,0 +1,5 @@
+# IOC feed offline de referencia
+203.0.113.45
+198.51.100.77
+malicious-example[.]org
+c2-node-demo[.]net

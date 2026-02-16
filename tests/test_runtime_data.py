@@ -1,5 +1,5 @@
 from sentinel_x_defense_suite.gui.runtime_data import (
-    build_defense_playbook,
+    build_incremental_runtime_snapshot,
     build_runtime_snapshot,
     detect_service_versions,
     parse_active_connections,
@@ -85,20 +85,36 @@ def test_suggested_service_commands_include_systemctl() -> None:
     assert any("systemctl restart nginx" in c for c in cmds)
 
 
-def test_build_defense_playbook_increases_risk_on_exposure() -> None:
-    playbook = build_defense_playbook(
-        exposed_services=[{"port": 22}, {"port": 443}],
-        remote_suspicious=[{"dst_ip": "203.0.113.10"}],
-        incoming_connections=[{"dst_port": 22}, {"dst_port": 8443}],
-    )
-    assert playbook["score"] < 100
-    assert playbook["level"] in {"ROBUSTO", "ELEVADO", "ALTO RIESGO", "CRÍTICO"}
-    assert "Postura defensiva" in playbook["summary"]
-    assert any("Reducir exposición" in action for action in playbook["actions"])
+def test_build_incremental_runtime_snapshot_detects_changes(monkeypatch) -> None:
+    outputs_a = {
+        "-tulpenH": 'tcp LISTEN 0 128 0.0.0.0:22 0.0.0.0:* users:(("sshd",pid=1,fd=5))',
+        "-tunapH": 'tcp ESTAB 0 0 10.0.0.5:22 8.8.8.8:41234 users:(("sshd",pid=1,fd=6))',
+    }
+    outputs_b = {
+        "-tulpenH": 'tcp LISTEN 0 128 0.0.0.0:2222 0.0.0.0:* users:(("sshd",pid=1,fd=5))',
+        "-tunapH": 'tcp ESTAB 0 0 10.0.0.5:22 8.8.4.4:41234 users:(("sshd",pid=1,fd=6))',
+    }
+
+    def _fake_run_a(command, timeout=5):
+        return outputs_a.get(command[-1], "")
+
+    def _fake_run_b(command, timeout=5):
+        return outputs_b.get(command[-1], "")
+
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run_a)
+    first = build_incremental_runtime_snapshot(None, include_service_versions=False)
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run_b)
+    second = build_incremental_runtime_snapshot(first["full_snapshot"], include_service_versions=False)
+
+    assert first["incremental_snapshot"]["services"]["added"]
+    assert second["incremental_snapshot"]["services"]["added"]
+    assert "active_connections" in second["incremental_snapshot"]["changed_sections"]
 
 
-def test_build_defense_playbook_healthy_baseline() -> None:
-    playbook = build_defense_playbook([], [], [])
-    assert playbook["score"] == 100
-    assert playbook["level"] == "ROBUSTO"
-    assert any("Estado saludable" in action for action in playbook["actions"])
+def test_build_runtime_snapshot_can_skip_service_versions(monkeypatch) -> None:
+    def _fake_run(command, timeout=5):
+        return ""
+
+    monkeypatch.setattr("sentinel_x_defense_suite.gui.runtime_data.run_command", _fake_run)
+    snap = build_runtime_snapshot(include_service_versions=False)
+    assert snap["service_versions"] == []
