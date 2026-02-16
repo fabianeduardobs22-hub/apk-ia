@@ -7,6 +7,8 @@ from sentinel_x_defense_suite.gui.sections.workflow import DrillDownWorkflowWidg
 
 
 class AlertsPage(QWidget):
+    pivotToHuntingRequested = pyqtSignal(str)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         root = QVBoxLayout(self)

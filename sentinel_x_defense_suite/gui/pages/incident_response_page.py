@@ -3,6 +3,7 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -17,6 +18,28 @@ from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
 
 class IncidentResponsePage(QWidget):
     playbookExecuted = pyqtSignal(str)
+    templateApplied = pyqtSignal(str)
+
+    RESPONSE_TEMPLATES: dict[str, list[str]] = {
+        "Brute force": [
+            "Bloquear IPs con >10 intentos/min",
+            "Forzar MFA para cuentas objetivo",
+            "Rotar credenciales comprometidas",
+            "Correlacionar origen en SIEM y WAF",
+        ],
+        "Beaconing": [
+            "Aislar endpoint con patrón periódico",
+            "Bloquear C2 en proxy/firewall",
+            "Capturar memoria para IOC de malware",
+            "Lanzar hunting por dominios DGAs",
+        ],
+        "Exposición de servicio": [
+            "Aplicar ACL temporal al servicio expuesto",
+            "Validar versión y CVEs asociadas",
+            "Habilitar inspección TLS/IPS",
+            "Registrar evidencia para post-mortem",
+        ],
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -33,6 +56,17 @@ class IncidentResponsePage(QWidget):
         controls_layout.addWidget(self.run_eradication)
         controls_layout.addStretch(1)
         root.addWidget(controls)
+
+        templates = RiskCard("Plantillas de respuesta")
+        templates_layout = QHBoxLayout(templates)
+        self.template_selector = QComboBox()
+        self.template_selector.addItems(list(self.RESPONSE_TEMPLATES.keys()))
+        self.apply_template_button = QPushButton("Aplicar plantilla")
+        templates_layout.addWidget(QLabel("Incidente"))
+        templates_layout.addWidget(self.template_selector)
+        templates_layout.addWidget(self.apply_template_button)
+        templates_layout.addStretch(1)
+        root.addWidget(templates)
 
         kpi_row = QHBoxLayout()
         self.exec_tile = MetricTile("Playbooks ejecutados", "0")

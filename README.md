@@ -2,6 +2,13 @@
 
 Suite defensiva para Linux con GUI nativa (PyQt6), captura de red, detección y análisis forense.
 
+## Mejoras operativas recientes
+
+- Pivot entre módulos con contexto compartido: desde alertas se puede abrir Threat Hunting filtrado por entidad/IP.
+- Bandeja de trabajo del analista con tareas y estado operativo (pendiente, en curso, revisión).
+- Historial de auditoría visible en GUI y exportable a CSV.
+- Plantillas de respuesta para incidentes frecuentes: brute force, beaconing y exposición de servicio.
+
 ## Perfiles de build (`core` y `extended`)
 
 El empaquetado ahora soporta dos perfiles controlados por `SENTINELX_BUILD_PROFILE` en `setup.py` y manifiestos explícitos en `packaging/`:
