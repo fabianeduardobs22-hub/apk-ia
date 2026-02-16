@@ -159,30 +159,17 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(6, 6, 6, 6)
         root_layout.setSpacing(6)
 
-        self.nav_menu = QListWidget()
-        self.nav_menu.setObjectName("navMenu")
-        self.nav_menu.setFixedWidth(260)
-        self.nav_menu.addItems(
-            [
-                "Centro SOC",
-                "Mapa táctico 3D",
-                "Conexiones en vivo",
-                "Servicios y versiones",
-                "Terminal operativa",
-            ]
-        )
+        self.sidebar = self._build_sidebar()
+        workspace = self._build_workspace()
+        self.operations_panel = self._build_right_operations_panel()
 
-        self.page_stack = QStackedWidget()
-        self.page_stack.addWidget(self._build_soc_page())
-        self.page_stack.addWidget(self._build_globe_page())
-        self.page_stack.addWidget(self._build_connections_page())
-        self.page_stack.addWidget(self._build_services_page())
-        self.page_stack.addWidget(self._build_terminal_page())
-        self.nav_menu.currentRowChanged.connect(self._switch_page)
-        self.nav_menu.setCurrentRow(0)
+        center = QSplitter(Qt.Orientation.Horizontal)
+        center.addWidget(workspace)
+        center.addWidget(self.operations_panel)
+        center.setSizes([1350, 500])
 
-        root_layout.addWidget(self.nav_menu)
-        root_layout.addWidget(self.page_stack, 1)
+        root_layout.addWidget(self.sidebar, 1)
+        root_layout.addWidget(center, 5)
         self.setCentralWidget(root)
 
         status = QStatusBar()
@@ -978,16 +965,9 @@ class MainWindow(QMainWindow):
             if not cmd:
                 return
             result.appendPlainText(f"$ {cmd}")
-            try:
-                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8, check=False)
-                merged = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-                result.appendPlainText((merged.strip() or "(sin salida)")[:5000])
-                result.appendPlainText(f"[exit={proc.returncode}]")
-            except Exception as exc:
-                result.appendPlainText(f"Error: {exc}")
+            result.appendPlainText("Ejecución restringida desde GUI demo. Copie el comando y ejecútelo en terminal con permisos.")
             result.appendPlainText("")
             terminal.clear()
-            self._refresh_runtime_watch()
 
         terminal.returnPressed.connect(_run_terminal_command)
         run_btn = QPushButton("Enviar comando")
@@ -1044,16 +1024,9 @@ class MainWindow(QMainWindow):
             if not cmd:
                 return
             result.appendPlainText(f"$ {cmd}")
-            try:
-                proc = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=8, check=False)
-                merged = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
-                result.appendPlainText((merged.strip() or "(sin salida)")[:5000])
-                result.appendPlainText(f"[exit={proc.returncode}]")
-            except Exception as exc:
-                result.appendPlainText(f"Error: {exc}")
+            result.appendPlainText("Comando capturado en modo seguro de GUI. Ejecútelo manualmente en shell de administración.")
             result.appendPlainText("")
             terminal.clear()
-            self._refresh_runtime_watch()
 
         terminal.returnPressed.connect(_run_terminal_command)
         run_btn = QPushButton("Ejecutar")

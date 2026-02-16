@@ -62,8 +62,7 @@ def test_right_operations_panel_lists_are_present(monkeypatch) -> None:
 
     assert win.incoming_connections_list.count() == 1
     assert win.service_versions_list.count() == 1
-    assert win.nav_menu.count() == 5
-    assert win.page_stack.count() == 5
+    assert win.ops_tabs.count() == 4
 
     win.close()
     app.processEvents()
