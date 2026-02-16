@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -38,6 +39,9 @@ from sentinel_x_defense_suite.gui.pages import ForensicsTimelinePage, IncidentRe
 from sentinel_x_defense_suite.gui.runtime_data import build_runtime_snapshot
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -459,9 +463,171 @@ class MainWindow(QMainWindow):
         )
         self.add_packet(packet, "HIGH", 8.2, "US", "Evento simulado", "Bloquear IP temporalmente")
 
+    def _render_text_if_changed(self, key: str, widget: QPlainTextEdit, content: str) -> None:
+        if self._runtime_render_state.get(key) == content:
+            return
+        widget.setPlainText(content)
+        self._runtime_render_state[key] = content
+
+    def _on_center_tab_changed(self, index: int) -> None:
+        if self.center_tabs.tabText(index) == "Timeline":
+            self._timeline_loaded = True
+            self._refresh_timeline_tab()
+
+    def _on_ops_tab_changed(self, index: int) -> None:
+        tab_name = self.ops_tabs.tabText(index)
+        if tab_name == "Globo 3D":
+            self._loaded_modules.add("globe")
+        elif tab_name == "Servicios":
+            self._loaded_modules.add("services")
+        elif tab_name == "Conexiones":
+            self._loaded_modules.add("connections")
+        self._refresh_runtime_watch()
+
+    def _row_key(self, row: dict[str, object], fields: tuple[str, ...]) -> str:
+        return "|".join(str(row.get(field, "")) for field in fields)
+
+    def _connection_label(self, conn: dict[str, object]) -> str:
+        return (
+            f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')}"
+            f" -> {conn.get('dst_ip')}:{conn.get('dst_port')} ({conn.get('service', 'unknown')})"
+        )
+
+    def _service_label(self, service: dict[str, object]) -> str:
+        state = "activo" if service.get("active") else "inactivo"
+        return f"{service.get('service', 'unknown')} · {state} · {service.get('version', 'unknown')}"
+
+    def _sync_list_item(
+        self,
+        list_widget: QListWidget,
+        row_index: dict[str, QListWidgetItem],
+        payload: dict[str, object],
+        row_id: str,
+        label: str,
+    ) -> None:
+        item = row_index.get(row_id)
+        if item is None:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, payload)
+            row_index[row_id] = item
+            return
+        if item.text() != label:
+            item.setText(label)
+        item.setData(Qt.ItemDataRole.UserRole, payload)
+
+    def _delete_list_item(self, list_widget: QListWidget, row_index: dict[str, QListWidgetItem], row_id: str) -> None:
+        item = row_index.pop(row_id, None)
+        if item is None:
+            return
+        row = list_widget.row(item)
+        if row >= 0:
+            list_widget.takeItem(row)
+
+    def _render_paginated_list(
+        self,
+        list_widget: QListWidget,
+        row_index: dict[str, QListWidgetItem],
+        full_rows: list[dict[str, object]],
+        page: int,
+        page_size: int,
+        pager_label: QLabel,
+        prev_btn: QPushButton,
+        next_btn: QPushButton,
+        id_fields: tuple[str, ...],
+        formatter,
+    ) -> int:
+        total_pages = max(1, math.ceil(len(full_rows) / page_size))
+        page = max(0, min(page, total_pages - 1))
+        pager_label.setText(f"Página {page + 1}/{total_pages} · total={len(full_rows)}")
+        prev_btn.setEnabled(page > 0)
+        next_btn.setEnabled(page < total_pages - 1)
+
+        visible_ids = {
+            self._row_key(row, id_fields)
+            for row in full_rows[page * page_size : (page + 1) * page_size]
+            if isinstance(row, dict)
+        }
+        for row_id in list(row_index.keys()):
+            if row_id not in visible_ids:
+                self._delete_list_item(list_widget, row_index, row_id)
+
+        current_visible_ids = set(row_index.keys())
+        ordered_ids: list[str] = []
+        for row in full_rows[page * page_size : (page + 1) * page_size]:
+            if not isinstance(row, dict):
+                continue
+            row_id = self._row_key(row, id_fields)
+            ordered_ids.append(row_id)
+            self._sync_list_item(list_widget, row_index, row, row_id, formatter(row))
+            if row_id not in current_visible_ids:
+                list_widget.addItem(row_index[row_id])
+
+        for position, row_id in enumerate(ordered_ids):
+            item = row_index[row_id]
+            if list_widget.row(item) != position:
+                list_widget.takeItem(list_widget.row(item))
+                list_widget.insertItem(position, item)
+
+        return page
+
+    def _change_connections_page(self, delta: int) -> None:
+        self._incoming_page = max(0, self._incoming_page + delta)
+        self._render_connections_list()
+
+    def _change_services_page(self, delta: int) -> None:
+        self._services_page = max(0, self._services_page + delta)
+        self._render_services_list()
+
+    def _render_connections_list(self) -> None:
+        full_rows = self._runtime_snapshot.get("incoming_connections", [])
+        if not isinstance(full_rows, list):
+            full_rows = []
+        self._incoming_page = self._render_paginated_list(
+            self.incoming_connections_list,
+            self._incoming_index,
+            full_rows,
+            self._incoming_page,
+            self._incoming_page_size,
+            self.connections_page_label,
+            self.btn_connections_prev,
+            self.btn_connections_next,
+            ("protocol", "src_ip", "src_port", "dst_ip", "dst_port", "state"),
+            self._connection_label,
+        )
+
+    def _render_services_list(self) -> None:
+        full_rows = self._runtime_snapshot.get("service_versions", [])
+        if not isinstance(full_rows, list):
+            full_rows = []
+        self._services_page = self._render_paginated_list(
+            self.service_versions_list,
+            self._services_index,
+            full_rows,
+            self._services_page,
+            self._services_page_size,
+            self.services_page_label,
+            self.btn_services_prev,
+            self.btn_services_next,
+            ("service",),
+            self._service_label,
+        )
+
     def _refresh_runtime_watch(self) -> None:
-        snapshot = build_runtime_snapshot()
+        started = time.perf_counter()
+        include_service_versions = "services" in self._loaded_modules
+        snapshot_pack = build_incremental_runtime_snapshot(
+            self._runtime_snapshot or None,
+            include_service_versions=include_service_versions,
+        )
+        snapshot = snapshot_pack.get("full_snapshot", {}) if isinstance(snapshot_pack, dict) else {}
+        incremental = snapshot_pack.get("incremental_snapshot", {}) if isinstance(snapshot_pack, dict) else {}
+        if not isinstance(snapshot, dict):
+            snapshot = {}
+        if not isinstance(incremental, dict):
+            incremental = {}
+
         self._runtime_snapshot = snapshot
+        self._runtime_incremental_snapshot = incremental
 
         self.incoming_connections_list.clear()
         for conn in snapshot.get("incoming_connections", [])[:120]:
