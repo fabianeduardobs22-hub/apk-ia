@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import logging
+import math
 from pathlib import Path
+from typing import Any, TypedDict
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSplitter,
     QStackedWidget,
     QStatusBar,
     QTableWidget,
@@ -41,6 +44,47 @@ from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_the
 LOGGER = logging.getLogger(__name__)
 
 
+class SnapshotContract(TypedDict, total=False):
+    services: list[dict[str, Any]]
+    incoming_connections: list[dict[str, Any]]
+    service_versions: list[dict[str, Any]]
+    globe_points: list[dict[str, Any]]
+
+
+class AlertContract(TypedDict):
+    time: str
+    severity: str
+    entity: str
+    detection: str
+
+
+class PlaybookContract(TypedDict):
+    last_playbook: str
+    mode: str
+
+
+class AssetContract(TypedDict):
+    name: str
+    kind: str
+    state: str
+
+
+@dataclass(slots=True)
+class ShellContracts:
+    snapshot: SnapshotContract = field(default_factory=dict)
+    alerts: list[AlertContract] = field(default_factory=list)
+    playbook: PlaybookContract = field(default_factory=lambda: {"last_playbook": "none", "mode": "SAFE"})
+    assets: list[AssetContract] = field(default_factory=list)
+
+    def as_shared_context(self) -> dict[str, object]:
+        return {
+            "snapshot": self.snapshot,
+            "alerts": self.alerts,
+            "playbook": self.playbook,
+            "assets": self.assets,
+        }
+
+
 @dataclass(slots=True)
 class ConnectionViewRow:
     packet: PacketRecord
@@ -51,7 +95,115 @@ class ConnectionViewRow:
     recommendation: str
 
 
+class ViewRouter:
+    def __init__(self, stack: QStackedWidget, settings: QSettings) -> None:
+        self._stack = stack
+        self._settings = settings
+        self._route_map: dict[str, int] = {}
+        self._history: list[str] = []
+        self._cursor = -1
+
+    def register_route(self, route: str, widget: QWidget) -> None:
+        self._route_map[route] = self._stack.addWidget(widget)
+
+    def navigate(self, route: str, track_history: bool = True) -> None:
+        index = self._route_map.get(route)
+        if index is None:
+            return
+        self._stack.setCurrentIndex(index)
+        self._settings.setValue("router/last_module", route)
+        if track_history:
+            if self._cursor < len(self._history) - 1:
+                self._history = self._history[: self._cursor + 1]
+            self._history.append(route)
+            self._cursor = len(self._history) - 1
+
+    def can_go_back(self) -> bool:
+        return self._cursor > 0
+
+    def can_go_forward(self) -> bool:
+        return 0 <= self._cursor < len(self._history) - 1
+
+    def back(self) -> str | None:
+        if not self.can_go_back():
+            return None
+        self._cursor -= 1
+        route = self._history[self._cursor]
+        self.navigate(route, track_history=False)
+        return route
+
+    def forward(self) -> str | None:
+        if not self.can_go_forward():
+            return None
+        self._cursor += 1
+        route = self._history[self._cursor]
+        self.navigate(route, track_history=False)
+        return route
+
+    def current_route(self) -> str | None:
+        if self._cursor < 0 or self._cursor >= len(self._history):
+            return None
+        return self._history[self._cursor]
+
+
+class TacticalGlobeWidget(QWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setMinimumHeight(220)
+        self._rotation = 0.0
+        self._points: list[dict[str, float | str | int]] = []
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._advance_rotation)
+        self._timer.start(80)
+
+    def set_points(self, points: list[dict[str, float | str | int]]) -> None:
+        self._points = points[:120]
+        self.update()
+
+    def _advance_rotation(self) -> None:
+        self._rotation = (self._rotation + 1.8) % 360.0
+        self.update()
+
+    def _project(self, lat: float, lon: float, radius: float) -> tuple[float, float, float]:
+        lat_r = math.radians(lat)
+        lon_r = math.radians(lon + self._rotation)
+        return (
+            radius * math.cos(lat_r) * math.sin(lon_r),
+            radius * math.sin(lat_r),
+            math.cos(lat_r) * math.cos(lon_r),
+        )
+
+    def paintEvent(self, event: object) -> None:  # noqa: ARG002
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        w, h = self.width(), self.height()
+        radius = min(w, h) * 0.36
+        cx, cy = w / 2, h / 2
+
+        gradient = QRadialGradient(cx - radius * 0.3, cy - radius * 0.3, radius * 1.25)
+        gradient.setColorAt(0.0, QColor("#4db4ff"))
+        gradient.setColorAt(0.35, QColor("#1f6feb"))
+        gradient.setColorAt(1.0, QColor("#0b1622"))
+        painter.setPen(QPen(QColor("#5fc9ff"), 2))
+        painter.setBrush(gradient)
+        painter.drawEllipse(int(cx - radius), int(cy - radius), int(radius * 2), int(radius * 2))
+
+        for point in self._points:
+            lat = float(point.get("lat", 0.0))
+            lon = float(point.get("lon", 0.0))
+            severity = int(point.get("severity", 1))
+            x, y, z = self._project(lat, lon, radius)
+            if z <= -0.03:
+                continue
+            color = QColor("#77e4ff") if severity <= 2 else QColor("#ffd166") if severity == 3 else QColor("#ff5a5a")
+            painter.setPen(QPen(color, 1))
+            painter.setBrush(color)
+            painter.drawEllipse(int(cx + x - 3), int(cy - y - 3), 6 + severity, 6 + severity)
+
+
 class MainWindow(QMainWindow):
+    MODULES = ["SOC", "Threat Hunting", "Incident Response", "Forensics Timeline"]
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("DECKTROY · SENTINEL X DEFENSE SUITE")
@@ -59,19 +211,8 @@ class MainWindow(QMainWindow):
 
         self.settings = QSettings("Decktroy", "SentinelXDefenseSuite")
         self._rows: list[ConnectionViewRow] = []
-        self._runtime_snapshot: dict[str, object] = {}
-        self._route_widgets: dict[str, QWidget] = {}
-        self._route_indices: dict[str, int] = {}
-
-        self._router = GuiRouter(
-            [
-                RouteEntry("dashboard", "Dashboard SOC", ("soc", "overview", "metricas"), "sentinel_x_defense_suite.gui.sections.dashboard.page", "DashboardPage"),
-                RouteEntry("alerts", "Alerts Center", ("alertas", "triage", "incidentes"), "sentinel_x_defense_suite.gui.sections.alerts.page", "AlertsPage"),
-                RouteEntry("hunting", "Threat Hunting", ("hunt", "queries", "pivot"), "sentinel_x_defense_suite.gui.sections.hunting.page", "HuntingPage"),
-                RouteEntry("incident_response", "Incident Response", ("playbook", "containment", "response"), "sentinel_x_defense_suite.gui.sections.incident_response.page", "IncidentResponseModulePage"),
-                RouteEntry("forensics", "Forensics Timeline", ("timeline", "drill-down", "evidence"), "sentinel_x_defense_suite.gui.sections.forensics.page", "ForensicsPage"),
-            ]
-        )
+        self.contracts = ShellContracts()
+        self._sidebar_syncing = False
 
         self.current_role = Role(str(self.settings.value("ui/role", Role.ANALYST.value)))
         self._build_ui()
@@ -79,23 +220,43 @@ class MainWindow(QMainWindow):
 
         self._runtime_timer = QTimer(self)
         self._runtime_timer.timeout.connect(self._refresh_runtime_watch)
-        self._runtime_timer.start(1200)
+        self._runtime_timer.start(1500)
         self._refresh_runtime_watch()
 
     def _build_ui(self) -> None:
         self._build_menu_bar()
-        self._build_toolbar()
 
         root = QWidget()
-        layout = QHBoxLayout(root)
+        root_layout = QVBoxLayout(root)
+
+        # 1) topbar
+        self._build_topbar()
+
+        # 2) sidebar · 3) workspace · 4) contextual panel
+        self.shell_splitter = QSplitter(Qt.Orientation.Horizontal)
+        root_layout.addWidget(self.shell_splitter, 1)
 
         self.nav_list = QListWidget()
         self.nav_list.setObjectName("navMenu")
-        self.nav_list.currentRowChanged.connect(self._switch_page_by_index)
+        self.nav_list.addItems(self.MODULES)
+        self.nav_list.currentRowChanged.connect(self._on_sidebar_navigation)
 
         self.page_stack = QStackedWidget()
-        layout.addWidget(self.nav_list, 1)
-        layout.addWidget(self.page_stack, 6)
+        self.router = ViewRouter(self.page_stack, self.settings)
+        self.router.register_route("SOC", self._build_soc_page())
+        self.router.register_route("Threat Hunting", self._build_threat_hunting_page())
+        self.router.register_route("Incident Response", self._build_incident_response_page())
+        self.router.register_route("Forensics Timeline", self._build_forensics_page())
+
+        self.context_tabs = self._build_contextual_panel()
+
+        self.shell_splitter.addWidget(self.nav_list)
+        self.shell_splitter.addWidget(self.page_stack)
+        self.shell_splitter.addWidget(self.context_tabs)
+        self.shell_splitter.setStretchFactor(0, 0)
+        self.shell_splitter.setStretchFactor(1, 1)
+        self.shell_splitter.setStretchFactor(2, 0)
+
         self.setCentralWidget(root)
 
         self._populate_navigation()
@@ -103,6 +264,132 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         status.showMessage("Listo · Plataforma defensiva activa")
         self.setStatusBar(status)
+
+    def _build_topbar(self) -> None:
+        toolbar = QToolBar("Main")
+
+        self.btn_back = QPushButton("←")
+        self.btn_back.clicked.connect(self._go_back)
+        self.btn_forward = QPushButton("→")
+        self.btn_forward.clicked.connect(self._go_forward)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Filtro rápido")
+        self.search_input.textChanged.connect(self._apply_quick_filter)
+        self.search_input.textChanged.connect(lambda value: self.settings.setValue("filters/quick", value))
+
+        self.analyst_preset = QComboBox()
+        self.analyst_preset.addItems(["SOC L1", "Threat Hunter", "IR Lead"])
+        self.analyst_preset.currentTextChanged.connect(lambda v: self.settings.setValue("ui/analyst_preset", v))
+
+        self.quick_action_button = QPushButton("Evento demo")
+        self.quick_action_button.clicked.connect(self._simulate_demo_event)
+
+        toolbar.addWidget(QLabel("SOC View"))
+        toolbar.addWidget(self.btn_back)
+        toolbar.addWidget(self.btn_forward)
+        toolbar.addWidget(self.search_input)
+        toolbar.addWidget(self.analyst_preset)
+        toolbar.addWidget(self.quick_action_button)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
+
+
+    def _build_contextual_panel(self) -> QTabWidget:
+        tabs = QTabWidget()
+
+        self.context_snapshot = QTableWidget(0, 2)
+        self.context_snapshot.setHorizontalHeaderLabels(["Clave", "Valor"])
+
+        self.context_alerts = QListWidget()
+        self.context_assets = QListWidget()
+
+        tabs.addTab(self.context_snapshot, "snapshot")
+        tabs.addTab(self.context_alerts, "alerts")
+        tabs.addTab(self.context_assets, "assets")
+        return tabs
+
+    def _build_soc_page(self) -> QWidget:
+        page = QWidget()
+        layout = QHBoxLayout(page)
+
+        center = QWidget()
+        center_layout = QVBoxLayout(center)
+
+        self.table = QTableWidget(0, 7)
+        self.table.setHorizontalHeaderLabels(["Hora", "IP origen", "IP destino", "Puerto", "Protocolo", "Riesgo", "Resumen"])
+        self.table.setSortingEnabled(True)
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.itemSelectionChanged.connect(self._on_row_selected)
+
+        self.details_tabs = QTabWidget()
+        self.packet_inspector = QTableWidget(0, 2)
+        self.packet_inspector.setHorizontalHeaderLabels(["Campo", "Valor"])
+        self.anomaly_inspector = QTableWidget(0, 2)
+        self.anomaly_inspector.setHorizontalHeaderLabels(["Indicador", "Valor"])
+        self.response_inspector = QTableWidget(0, 2)
+        self.response_inspector.setHorizontalHeaderLabels(["Paso", "Estado"])
+        self.timeline_tab = QTableWidget(0, 4)
+        self.timeline_tab.setHorizontalHeaderLabels(["Hora", "Severidad", "Entidad", "Resumen"])
+
+        self.details_tabs.addTab(self.packet_inspector, "Inspector de paquete")
+        self.details_tabs.addTab(self.anomaly_inspector, "Anomalías y riesgo")
+        self.details_tabs.addTab(self.response_inspector, "Respuesta defensiva")
+        self.details_tabs.addTab(self.timeline_tab, "Timeline")
+        self.details_tabs.currentChanged.connect(lambda idx: self.settings.setValue("ui/last_workspace_tab", idx))
+
+        center_layout.addWidget(self.table, 3)
+        center_layout.addWidget(self.details_tabs, 2)
+
+        self.ops_tabs = QTabWidget()
+        self.ops_tabs.addTab(self._build_globe_tab(), "Globo 3D")
+        self.ops_tabs.addTab(self._build_connections_tab(), "Conexiones")
+        self.ops_tabs.addTab(self._build_services_tab(), "Servicios")
+
+        self.soc_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.soc_splitter.addWidget(center)
+        self.soc_splitter.addWidget(self.ops_tabs)
+        self.soc_splitter.setSizes([1200, 500])
+        layout.addWidget(self.soc_splitter)
+        return page
+
+    def _build_globe_tab(self) -> QWidget:
+        tab = QWidget()
+        v = QVBoxLayout(tab)
+        self.globe_widget = TacticalGlobeWidget()
+        v.addWidget(self.globe_widget)
+        return tab
+
+    def _build_connections_tab(self) -> QWidget:
+        tab = QWidget()
+        v = QVBoxLayout(tab)
+        self.incoming_connections_list = QListWidget()
+        self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+        v.addWidget(self.incoming_connections_list)
+        return tab
+
+    def _build_services_tab(self) -> QWidget:
+        tab = QWidget()
+        v = QVBoxLayout(tab)
+        self.service_versions_list = QListWidget()
+        self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        v.addWidget(self.service_versions_list)
+        return tab
+
+    def _build_threat_hunting_page(self) -> QWidget:
+        self.threat_hunting_page = ThreatHuntingPage()
+        self.threat_hunting_page.queryChanged.connect(self._on_threat_query)
+        self.threat_hunting_page.entity_pivot.currentTextChanged.connect(lambda v: self.settings.setValue("filters/pivot", v))
+        self.threat_hunting_page.severity_filter.currentTextChanged.connect(lambda v: self.settings.setValue("filters/severity", v))
+        return self.threat_hunting_page
+
+    def _build_incident_response_page(self) -> QWidget:
+        self.incident_response_page = IncidentResponsePage()
+        self.incident_response_page.playbookExecuted.connect(self._on_playbook_executed)
+        return self.incident_response_page
+
+    def _build_forensics_page(self) -> QWidget:
+        self.forensics_page = ForensicsTimelinePage()
+        return self.forensics_page
 
     def _build_menu_bar(self) -> None:
         bar = self.menuBar()
@@ -130,64 +417,14 @@ class MainWindow(QMainWindow):
         about_action.triggered.connect(self._show_about_popup)
         menu_help.addAction(about_action)
 
-    def _build_toolbar(self) -> None:
-        toolbar = QToolBar("Main")
-
-        self.quick_filter_input = QLineEdit()
-        self.quick_filter_input.setPlaceholderText("Filtro rápido")
-        self.quick_filter_input.textChanged.connect(self._apply_quick_filter)
-
-        self.nav_search_input = QLineEdit()
-        self.nav_search_input.setPlaceholderText("Ir a módulo/función")
-        self.nav_search_input.returnPressed.connect(self._go_to_navigation_query)
-        completer = QCompleter([r.sidebar_label for r in self._router.routes], self)
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.nav_search_input.setCompleter(completer)
-
-        self.role_selector = QComboBox()
-        self.role_selector.addItem(ROLE_LABELS[Role.READ_ONLY], Role.READ_ONLY.value)
-        self.role_selector.addItem(ROLE_LABELS[Role.ANALYST], Role.ANALYST.value)
-        self.role_selector.addItem(ROLE_LABELS[Role.OPERATOR], Role.OPERATOR.value)
-        self.role_selector.addItem(ROLE_LABELS[Role.ADMIN], Role.ADMIN.value)
-        self.role_selector.currentIndexChanged.connect(self._on_role_changed)
-
-        self.quick_action_button = QPushButton("Evento demo")
-        self.quick_action_button.clicked.connect(self._simulate_demo_event)
-
-        toolbar.addWidget(QLabel("SOC View"))
-        toolbar.addWidget(self.quick_filter_input)
-        toolbar.addWidget(self.nav_search_input)
-        toolbar.addWidget(self.role_selector)
-        toolbar.addWidget(self.quick_action_button)
-        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
-
-    def _populate_navigation(self) -> None:
-        self.nav_list.clear()
-        for route in self._router.routes:
-            item = QListWidgetItem(route.sidebar_label)
-            item.setData(Qt.ItemDataRole.UserRole, route.route_id)
-            enabled = DEFAULT_POLICY.allows_view(self.current_role, route.route_id)
-            if not enabled:
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEnabled)
-                item.setToolTip(f"Requiere rol: {ROLE_LABELS[DEFAULT_POLICY.view_roles[route.route_id]]}")
-            self.nav_list.addItem(item)
-
-        first_enabled = 0
-        for row in range(self.nav_list.count()):
-            if self.nav_list.item(row).flags() & Qt.ItemFlag.ItemIsEnabled:
-                first_enabled = row
-                break
-        self.nav_list.setCurrentRow(first_enabled)
-        self._sync_rbac_actions()
-
-    def _switch_page_by_index(self, index: int) -> None:
-        if index < 0:
-            return
-        item = self.nav_list.item(index)
-        if item is None:
-            return
-        route_id = str(item.data(Qt.ItemDataRole.UserRole))
-        self._switch_to_route(route_id)
+    def _build_theme_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Tema premium")
+        form = QFormLayout(dialog)
+        selector = QComboBox()
+        for theme in THEMES.values():
+            selector.addItem(theme.name, theme.key)
+        selector.setCurrentIndex(max(0, selector.findData(self.settings.value("ui/theme", "midnight"))))
 
     def _switch_to_route(self, route_id: str) -> None:
         if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
@@ -252,16 +489,66 @@ class MainWindow(QMainWindow):
 
     def _restore_persistent_state(self) -> None:
         apply_theme(QApplication.instance() or QApplication([]), str(self.settings.value("ui/theme", "midnight")))
-        self.role_selector.setCurrentIndex(max(0, self.role_selector.findData(self.current_role.value)))
-        last_route = str(self.settings.value("ui/last_route", "dashboard"))
-        self._switch_to_route(last_route)
+
+        self.search_input.setText(str(self.settings.value("filters/quick", "")))
+        self.threat_hunting_page.query_input.setText(str(self.settings.value("filters/query", "")))
+        self.threat_hunting_page.entity_pivot.setCurrentText(str(self.settings.value("filters/pivot", "IP")))
+        self.threat_hunting_page.severity_filter.setCurrentText(str(self.settings.value("filters/severity", "Todas")))
+        self.analyst_preset.setCurrentText(str(self.settings.value("ui/analyst_preset", "SOC L1")))
+
+        self.details_tabs.setCurrentIndex(int(self.settings.value("ui/last_workspace_tab", 0)))
+
+        shell_sizes = self.settings.value("ui/shell_splitter_sizes")
+        if isinstance(shell_sizes, list) and shell_sizes:
+            self.shell_splitter.setSizes([int(size) for size in shell_sizes])
+        soc_sizes = self.settings.value("ui/soc_splitter_sizes")
+        if isinstance(soc_sizes, list) and soc_sizes:
+            self.soc_splitter.setSizes([int(size) for size in soc_sizes])
+
+        last_module = str(self.settings.value("router/last_module", "SOC"))
+        self.router.navigate(last_module)
+        self._sync_sidebar_with_route(last_module)
+        self._update_router_buttons()
+
+    def closeEvent(self, event: object) -> None:
+        self.settings.setValue("ui/shell_splitter_sizes", self.shell_splitter.sizes())
+        self.settings.setValue("ui/soc_splitter_sizes", self.soc_splitter.sizes())
+        super().closeEvent(event)
+
+    def _sync_sidebar_with_route(self, route: str) -> None:
+        if route not in self.MODULES:
+            return
+        self._sidebar_syncing = True
+        self.nav_list.setCurrentRow(self.MODULES.index(route))
+        self._sidebar_syncing = False
+
+    def _on_sidebar_navigation(self, index: int) -> None:
+        if self._sidebar_syncing or not (0 <= index < len(self.MODULES)):
+            return
+        route = self.MODULES[index]
+        self.router.navigate(route)
+        self._update_router_buttons()
+
+    def _go_back(self) -> None:
+        route = self.router.back()
+        if route:
+            self._sync_sidebar_with_route(route)
+        self._update_router_buttons()
+
+    def _go_forward(self) -> None:
+        route = self.router.forward()
+        if route:
+            self._sync_sidebar_with_route(route)
+        self._update_router_buttons()
+
+    def _update_router_buttons(self) -> None:
+        self.btn_back.setEnabled(self.router.can_go_back())
+        self.btn_forward.setEnabled(self.router.can_go_forward())
 
     def _on_threat_query(self, query: str) -> None:
-        self.settings.setValue("hunting/last_query", query)
-        if not hasattr(self, "threat_hunting_page"):
-            return
+        self.settings.setValue("filters/query", query)
         filtered: list[dict[str, str]] = []
-        for row in self._rows[-100:]:
+        for row in self._rows[-120:]:
             if query and query.lower() not in row.analysis_summary.lower() and query not in row.packet.src_ip:
                 continue
             filtered.append(
@@ -275,6 +562,11 @@ class MainWindow(QMainWindow):
                 }
             )
         self.threat_hunting_page.set_results(filtered)
+
+    def _on_playbook_executed(self, playbook: str) -> None:
+        mode = "SAFE" if self.incident_response_page.safe_mode.isChecked() else "LIVE"
+        self.contracts.playbook = {"last_playbook": playbook, "mode": mode}
+        self.settings.setValue("playbook/last", playbook)
 
     def _risk_color(self, risk: str) -> QColor:
         return {
@@ -373,34 +665,90 @@ class MainWindow(QMainWindow):
         self.add_packet(packet, "HIGH", 8.2, "US", "Evento simulado", "Bloquear IP temporalmente")
 
     def _refresh_runtime_watch(self) -> None:
-        snapshot_pack = build_incremental_runtime_snapshot(self._runtime_snapshot or None, include_service_versions=True)
-        snapshot = snapshot_pack.get("full_snapshot", {}) if isinstance(snapshot_pack, dict) else {}
-        self._runtime_snapshot = snapshot if isinstance(snapshot, dict) else {}
+        snapshot = build_runtime_snapshot(include_service_versions=True)
+        self.contracts.snapshot = snapshot
 
-        if hasattr(self, "incoming_connections_list"):
-            self.incoming_connections_list.clear()
-            for conn in self._runtime_snapshot.get("incoming_connections", [])[:120]:
-                if not isinstance(conn, dict):
-                    continue
-                label = f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')} -> {conn.get('dst_ip')}:{conn.get('dst_port')}"
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, conn)
-                self.incoming_connections_list.addItem(item)
+        alerts: list[AlertContract] = []
+        for conn in snapshot.get("incoming_connections", [])[:30]:
+            if not isinstance(conn, dict):
+                continue
+            alerts.append(
+                {
+                    "time": datetime.now(tz=timezone.utc).strftime("%H:%M:%S"),
+                    "severity": "MEDIUM" if conn.get("state") == "ESTAB" else "LOW",
+                    "entity": str(conn.get("dst_ip", "unknown")),
+                    "detection": f"{conn.get('protocol', 'tcp')}:{conn.get('dst_port', '-')}",
+                }
+            )
+        self.contracts.alerts = alerts
 
-        if hasattr(self, "service_versions_list"):
-            self.service_versions_list.clear()
-            for service in self._runtime_snapshot.get("service_versions", [])[:120]:
-                if not isinstance(service, dict):
-                    continue
-                label = f"{service.get('service', 'unknown')} · {service.get('version', 'unknown')}"
-                item = QListWidgetItem(label)
-                item.setData(Qt.ItemDataRole.UserRole, service)
-                self.service_versions_list.addItem(item)
+        assets: list[AssetContract] = []
+        for service in snapshot.get("service_versions", [])[:30]:
+            if not isinstance(service, dict):
+                continue
+            assets.append(
+                {
+                    "name": str(service.get("service", "unknown")),
+                    "kind": "service",
+                    "state": "active" if service.get("active") else "inactive",
+                }
+            )
+        self.contracts.assets = assets
 
-        if hasattr(self, "globe_widget"):
-            globe_points = self._runtime_snapshot.get("globe_points", [])
-            if isinstance(globe_points, list):
-                self.globe_widget.set_points(globe_points)
+        self._render_contract_panels()
+        self._propagate_contracts_to_modules()
+
+    def _render_contract_panels(self) -> None:
+        self.context_snapshot.setRowCount(0)
+        rows = [
+            ("services", str(len(self.contracts.snapshot.get("services", [])))),
+            ("incoming_connections", str(len(self.contracts.snapshot.get("incoming_connections", [])))),
+            ("service_versions", str(len(self.contracts.snapshot.get("service_versions", [])))),
+            ("playbook", self.contracts.playbook.get("last_playbook", "none")),
+        ]
+        for key, value in rows:
+            row = self.context_snapshot.rowCount()
+            self.context_snapshot.insertRow(row)
+            self.context_snapshot.setItem(row, 0, QTableWidgetItem(key))
+            self.context_snapshot.setItem(row, 1, QTableWidgetItem(value))
+
+        self.context_alerts.clear()
+        for alert in self.contracts.alerts[:40]:
+            self.context_alerts.addItem(
+                f"[{alert['severity']}] {alert['time']} · {alert['entity']} · {alert['detection']}"
+            )
+
+        self.context_assets.clear()
+        for asset in self.contracts.assets[:40]:
+            self.context_assets.addItem(f"{asset['name']} · {asset['kind']} · {asset['state']}")
+
+        self.incoming_connections_list.clear()
+        for conn in self.contracts.snapshot.get("incoming_connections", [])[:120]:
+            if not isinstance(conn, dict):
+                continue
+            label = f"{conn.get('state', 'STATE')} · {conn.get('src_ip')}:{conn.get('src_port')} -> {conn.get('dst_ip')}:{conn.get('dst_port')}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, conn)
+            self.incoming_connections_list.addItem(item)
+
+        self.service_versions_list.clear()
+        for service in self.contracts.snapshot.get("service_versions", [])[:120]:
+            if not isinstance(service, dict):
+                continue
+            label = f"{service.get('service', 'unknown')} · {service.get('version', 'unknown')}"
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, service)
+            self.service_versions_list.addItem(item)
+
+        globe_points = self.contracts.snapshot.get("globe_points", [])
+        if isinstance(globe_points, list):
+            self.globe_widget.set_points(globe_points)
+
+    def _propagate_contracts_to_modules(self) -> None:
+        shared = self.contracts.as_shared_context()
+        self.threat_hunting_page.setProperty("shell_contracts", shared)
+        self.incident_response_page.setProperty("shell_contracts", shared)
+        self.forensics_page.setProperty("shell_contracts", shared)
 
     def _open_incoming_connection_detail(self, item: QListWidgetItem) -> None:
         payload = item.data(Qt.ItemDataRole.UserRole)
@@ -412,10 +760,10 @@ class MainWindow(QMainWindow):
         table = QTableWidget(0, 2)
         table.setHorizontalHeaderLabels(["Campo", "Valor"])
         for key in ["protocol", "state", "src_ip", "src_port", "dst_ip", "dst_port", "service"]:
-            r = table.rowCount()
-            table.insertRow(r)
-            table.setItem(r, 0, QTableWidgetItem(key))
-            table.setItem(r, 1, QTableWidgetItem(str(payload.get(key, "-"))))
+            row = table.rowCount()
+            table.insertRow(row)
+            table.setItem(row, 0, QTableWidgetItem(key))
+            table.setItem(row, 1, QTableWidgetItem(str(payload.get(key, "-"))))
         layout.addWidget(table)
         dialog.resize(620, 420)
         dialog.exec()
@@ -430,10 +778,10 @@ class MainWindow(QMainWindow):
         table = QTableWidget(0, 2)
         table.setHorizontalHeaderLabels(["Campo", "Valor"])
         for key in ["service", "version", "status", "port", "command"]:
-            r = table.rowCount()
-            table.insertRow(r)
-            table.setItem(r, 0, QTableWidgetItem(key))
-            table.setItem(r, 1, QTableWidgetItem(str(payload.get(key, "-"))))
+            row = table.rowCount()
+            table.insertRow(row)
+            table.setItem(row, 0, QTableWidgetItem(key))
+            table.setItem(row, 1, QTableWidgetItem(str(payload.get(key, "-"))))
         layout.addWidget(table)
         dialog.resize(620, 420)
         dialog.exec()
@@ -475,7 +823,10 @@ class MainWindow(QMainWindow):
 
         def _save() -> None:
             settings.capture.interface = interface_input.text().strip() or "any"
-            Path(cfg_path).write_text(SettingsLoader._dumps({"app_name": settings.app_name, "capture": {"interface": settings.capture.interface}}), encoding="utf-8")
+            Path(cfg_path).write_text(
+                SettingsLoader._dumps({"app_name": settings.app_name, "capture": {"interface": settings.capture.interface}}),
+                encoding="utf-8",
+            )
             dialog.accept()
 
         buttons.accepted.connect(_save)
