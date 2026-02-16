@@ -8,13 +8,14 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QColor, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
     QCompleter,
     QDialog,
     QDialogButtonBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -27,6 +28,7 @@ from PyQt6.QtWidgets import (
     QSplitter,
     QStackedWidget,
     QStatusBar,
+    QTabWidget,
     QTableWidget,
     QTableWidgetItem,
     QToolBar,
@@ -41,6 +43,9 @@ from sentinel_x_defense_suite.gui.runtime_data import build_incremental_runtime_
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
 from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
+from sentinel_x_defense_suite.gui.pages.forensics_timeline_page import ForensicsTimelinePage
+from sentinel_x_defense_suite.gui.pages.incident_response_page import IncidentResponsePage
+from sentinel_x_defense_suite.gui.pages.threat_hunting_page import ThreatHuntingPage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -68,6 +73,20 @@ class AssetContract(TypedDict):
     name: str
     kind: str
     state: str
+
+
+class AnalystTask(TypedDict):
+    task: str
+    source: str
+    priority: str
+    status: str
+
+
+class AuditEntry(TypedDict):
+    time: str
+    action: str
+    module: str
+    detail: str
 
 
 @dataclass(slots=True)
@@ -213,6 +232,9 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("Decktroy", "SentinelXDefenseSuite")
         self._rows: list[ConnectionViewRow] = []
         self.contracts = ShellContracts()
+        self.analyst_tasks: list[AnalystTask] = []
+        self.audit_trail: list[AuditEntry] = []
+        self._last_snapshot: dict[str, Any] | None = None
         self._sidebar_syncing = False
 
         self.current_role = Role(str(self.settings.value("ui/role", Role.ANALYST.value)))
@@ -301,12 +323,34 @@ class MainWindow(QMainWindow):
         self.context_snapshot = QTableWidget(0, 2)
         self.context_snapshot.setHorizontalHeaderLabels(["Clave", "Valor"])
 
+        alerts_tab = QWidget()
+        alerts_layout = QVBoxLayout(alerts_tab)
         self.context_alerts = QListWidget()
+        self.context_alerts.itemDoubleClicked.connect(lambda item: self._pivot_alert_to_hunting(item.data(Qt.ItemDataRole.UserRole)))
+        self.pivot_alert_button = QPushButton("Pivot alerta → hunting")
+        self.pivot_alert_button.clicked.connect(self._pivot_selected_alert)
+        alerts_layout.addWidget(self.context_alerts)
+        alerts_layout.addWidget(self.pivot_alert_button)
+
         self.context_assets = QListWidget()
 
+        self.workbench_table = QTableWidget(0, 4)
+        self.workbench_table.setHorizontalHeaderLabels(["Tarea", "Origen", "Prioridad", "Estado"])
+
+        audit_tab = QWidget()
+        audit_layout = QVBoxLayout(audit_tab)
+        self.audit_table = QTableWidget(0, 4)
+        self.audit_table.setHorizontalHeaderLabels(["Hora", "Acción", "Módulo", "Detalle"])
+        self.export_audit_button = QPushButton("Exportar auditoría (CSV)")
+        self.export_audit_button.clicked.connect(self._export_audit_history)
+        audit_layout.addWidget(self.audit_table)
+        audit_layout.addWidget(self.export_audit_button)
+
         tabs.addTab(self.context_snapshot, "snapshot")
-        tabs.addTab(self.context_alerts, "alerts")
+        tabs.addTab(alerts_tab, "alerts")
         tabs.addTab(self.context_assets, "assets")
+        tabs.addTab(self.workbench_table, "workbench")
+        tabs.addTab(audit_tab, "auditoría")
         return tabs
 
     def _build_soc_page(self) -> QWidget:
@@ -386,6 +430,7 @@ class MainWindow(QMainWindow):
     def _build_incident_response_page(self) -> QWidget:
         self.incident_response_page = IncidentResponsePage()
         self.incident_response_page.playbookExecuted.connect(self._on_playbook_executed)
+        self.incident_response_page.templateApplied.connect(self._on_incident_template_applied)
         return self.incident_response_page
 
     def _build_forensics_page(self) -> QWidget:
@@ -397,7 +442,10 @@ class MainWindow(QMainWindow):
         menu_file = bar.addMenu("Archivo")
         export_action = QAction("Exportar resumen de sesión", self)
         export_action.triggered.connect(self._show_export_summary_popup)
+        export_audit_action = QAction("Exportar historial de auditoría", self)
+        export_audit_action.triggered.connect(self._export_audit_history)
         menu_file.addAction(export_action)
+        menu_file.addAction(export_audit_action)
         menu_file.addAction(QAction("Salir", self, triggered=self.close))
 
         menu_view = bar.addMenu("Vista")
@@ -563,11 +611,13 @@ class MainWindow(QMainWindow):
                 }
             )
         self.threat_hunting_page.set_results(filtered)
+        self._record_audit_action("query.hunting", "Threat Hunting", f"query={query or '*'} resultados={len(filtered)}")
 
     def _on_playbook_executed(self, playbook: str) -> None:
         mode = "SAFE" if self.incident_response_page.safe_mode.isChecked() else "LIVE"
         self.contracts.playbook = {"last_playbook": playbook, "mode": mode}
         self.settings.setValue("playbook/last", playbook)
+        self._record_audit_action("playbook.execute", "Incident Response", f"{playbook} modo={mode}")
 
     def _risk_color(self, risk: str) -> QColor:
         return {
@@ -664,10 +714,13 @@ class MainWindow(QMainWindow):
             metadata={"service": "https", "sensor": "demo-generator", "tag": "simulated"},
         )
         self.add_packet(packet, "HIGH", 8.2, "US", "Evento simulado", "Bloquear IP temporalmente")
+        self._record_audit_action("demo.event.generate", "SOC", "Se inyectó evento simulado para validación")
 
     def _refresh_runtime_watch(self) -> None:
-        snapshot = build_runtime_snapshot(include_service_versions=True)
+        incremental = build_incremental_runtime_snapshot(self._last_snapshot, include_service_versions=True)
+        snapshot = incremental.get("full_snapshot", {})
         self.contracts.snapshot = snapshot
+        self._last_snapshot = snapshot
 
         alerts: list[AlertContract] = []
         for conn in snapshot.get("incoming_connections", [])[:30]:
@@ -695,6 +748,7 @@ class MainWindow(QMainWindow):
                 }
             )
         self.contracts.assets = assets
+        self._sync_analyst_workbench()
 
         self._render_contract_panels()
         self._propagate_contracts_to_modules()
@@ -715,9 +769,9 @@ class MainWindow(QMainWindow):
 
         self.context_alerts.clear()
         for alert in self.contracts.alerts[:40]:
-            self.context_alerts.addItem(
-                f"[{alert['severity']}] {alert['time']} · {alert['entity']} · {alert['detection']}"
-            )
+            item = QListWidgetItem(f"[{alert['severity']}] {alert['time']} · {alert['entity']} · {alert['detection']}")
+            item.setData(Qt.ItemDataRole.UserRole, alert.get("entity", ""))
+            self.context_alerts.addItem(item)
 
         self.context_assets.clear()
         for asset in self.contracts.assets[:40]:
@@ -741,9 +795,107 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, service)
             self.service_versions_list.addItem(item)
 
+        self.workbench_table.setRowCount(0)
+        for task in self.analyst_tasks[:80]:
+            row = self.workbench_table.rowCount()
+            self.workbench_table.insertRow(row)
+            self.workbench_table.setItem(row, 0, QTableWidgetItem(task["task"]))
+            self.workbench_table.setItem(row, 1, QTableWidgetItem(task["source"]))
+            self.workbench_table.setItem(row, 2, QTableWidgetItem(task["priority"]))
+            self.workbench_table.setItem(row, 3, QTableWidgetItem(task["status"]))
+
+        self.audit_table.setRowCount(0)
+        for entry in self.audit_trail[-120:]:
+            row = self.audit_table.rowCount()
+            self.audit_table.insertRow(row)
+            self.audit_table.setItem(row, 0, QTableWidgetItem(entry["time"]))
+            self.audit_table.setItem(row, 1, QTableWidgetItem(entry["action"]))
+            self.audit_table.setItem(row, 2, QTableWidgetItem(entry["module"]))
+            self.audit_table.setItem(row, 3, QTableWidgetItem(entry["detail"]))
+
         globe_points = self.contracts.snapshot.get("globe_points", [])
         if isinstance(globe_points, list):
             self.globe_widget.set_points(globe_points)
+
+    def _sync_analyst_workbench(self) -> None:
+        pending = sum(1 for alert in self.contracts.alerts if alert.get("severity") in {"MEDIUM", "HIGH", "CRITICAL"})
+        tasks: list[AnalystTask] = [
+            {
+                "task": "Triar alertas activas",
+                "source": "Alerts",
+                "priority": "Alta" if pending > 4 else "Media",
+                "status": "pendiente" if pending else "bloqueado",
+            },
+            {
+                "task": "Validar exposición de servicios",
+                "source": "SOC",
+                "priority": "Alta" if self.contracts.snapshot.get("public_service_count", 0) else "Baja",
+                "status": "en curso" if self.contracts.snapshot.get("services") else "pendiente",
+            },
+            {
+                "task": "Actualizar timeline forense",
+                "source": "Forensics",
+                "priority": "Media",
+                "status": "pendiente",
+            },
+        ]
+        if self.contracts.playbook.get("last_playbook", "none") != "none":
+            tasks.append(
+                {
+                    "task": f"Cerrar acciones de {self.contracts.playbook['last_playbook']}",
+                    "source": "Incident Response",
+                    "priority": "Alta",
+                    "status": "en revisión",
+                }
+            )
+        self.analyst_tasks = tasks
+
+    def _pivot_selected_alert(self) -> None:
+        item = self.context_alerts.currentItem()
+        if item is None:
+            return
+        self._pivot_alert_to_hunting(item.data(Qt.ItemDataRole.UserRole))
+
+    def _pivot_alert_to_hunting(self, entity: object) -> None:
+        target = str(entity or "").strip()
+        if not target:
+            return
+        self.threat_hunting_page.query_input.setText(target)
+        self.threat_hunting_page.entity_pivot.setCurrentText("IP")
+        self.router.navigate("Threat Hunting")
+        self._sync_sidebar_with_route("Threat Hunting")
+        self._update_router_buttons()
+        self._on_threat_query(target)
+        self._record_audit_action("pivot.alert_to_hunting", "Threat Hunting", f"entity={target}")
+
+    def _on_incident_template_applied(self, template_name: str) -> None:
+        self._record_audit_action("ir.template.apply", "Incident Response", template_name)
+
+    def _record_audit_action(self, action: str, module: str, detail: str) -> None:
+        entry: AuditEntry = {
+            "time": datetime.now(tz=timezone.utc).strftime("%H:%M:%S"),
+            "action": action,
+            "module": module,
+            "detail": detail,
+        }
+        self.audit_trail.append(entry)
+        if len(self.audit_trail) > 400:
+            self.audit_trail = self.audit_trail[-400:]
+
+    def _export_audit_history(self) -> None:
+        if not self.audit_trail:
+            self.statusBar().showMessage("Sin acciones para exportar", 3000)
+            return
+        default_name = f"audit-history-{datetime.now(tz=timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+        path, _ = QFileDialog.getSaveFileName(self, "Exportar auditoría", default_name, "CSV (*.csv)")
+        if not path:
+            return
+        lines = ["time,action,module,detail"]
+        for entry in self.audit_trail:
+            escaped = [entry["time"], entry["action"], entry["module"], entry["detail"].replace('"', "''")]
+            lines.append(",".join(f'"{value}"' for value in escaped))
+        Path(path).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self.statusBar().showMessage(f"Auditoría exportada en {path}", 4000)
 
     def _propagate_contracts_to_modules(self) -> None:
         shared = self.contracts.as_shared_context()
@@ -768,6 +920,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
         dialog.resize(620, 420)
         dialog.exec()
+        self._record_audit_action("connection.drilldown.open", "SOC", f"{payload.get('src_ip', '-')}->{payload.get('dst_ip', '-')}")
 
     def _open_service_version_detail(self, item: QListWidgetItem) -> None:
         payload = item.data(Qt.ItemDataRole.UserRole)
@@ -786,6 +939,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(table)
         dialog.resize(620, 420)
         dialog.exec()
+        self._record_audit_action("service.drilldown.open", "SOC", str(payload.get('service', 'unknown')))
 
     def _build_theme_dialog(self) -> None:
         dialog = QDialog(self)

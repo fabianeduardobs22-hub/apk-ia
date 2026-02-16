@@ -3,13 +3,13 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
     QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -20,6 +20,28 @@ from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
 
 class IncidentResponsePage(QWidget):
     playbookExecuted = pyqtSignal(str)
+    templateApplied = pyqtSignal(str)
+
+    RESPONSE_TEMPLATES: dict[str, list[str]] = {
+        "Brute force": [
+            "Bloquear IPs con >10 intentos/min",
+            "Forzar MFA para cuentas objetivo",
+            "Rotar credenciales comprometidas",
+            "Correlacionar origen en SIEM y WAF",
+        ],
+        "Beaconing": [
+            "Aislar endpoint con patrón periódico",
+            "Bloquear C2 en proxy/firewall",
+            "Capturar memoria para IOC de malware",
+            "Lanzar hunting por dominios DGAs",
+        ],
+        "Exposición de servicio": [
+            "Aplicar ACL temporal al servicio expuesto",
+            "Validar versión y CVEs asociadas",
+            "Habilitar inspección TLS/IPS",
+            "Registrar evidencia para post-mortem",
+        ],
+    }
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -36,6 +58,17 @@ class IncidentResponsePage(QWidget):
         controls_layout.addWidget(self.run_eradication)
         controls_layout.addStretch(1)
         root.addWidget(controls)
+
+        templates = RiskCard("Plantillas de respuesta")
+        templates_layout = QHBoxLayout(templates)
+        self.template_selector = QComboBox()
+        self.template_selector.addItems(list(self.RESPONSE_TEMPLATES.keys()))
+        self.apply_template_button = QPushButton("Aplicar plantilla")
+        templates_layout.addWidget(QLabel("Incidente"))
+        templates_layout.addWidget(self.template_selector)
+        templates_layout.addWidget(self.apply_template_button)
+        templates_layout.addStretch(1)
+        root.addWidget(templates)
 
         kpi_row = QHBoxLayout()
         self.exec_tile = MetricTile("Playbooks ejecutados", "0")
@@ -74,6 +107,7 @@ class IncidentResponsePage(QWidget):
 
         self.run_containment.clicked.connect(lambda: self._execute("Containment"))
         self.run_eradication.clicked.connect(lambda: self._execute("Eradication"))
+        self.apply_template_button.clicked.connect(self._apply_template)
 
     def _execute(self, playbook: str) -> None:
         mode = "SAFE" if self.safe_mode.isChecked() else "LIVE"
@@ -83,3 +117,12 @@ class IncidentResponsePage(QWidget):
         self.status.setText(f"Última ejecución: {playbook} ({mode})")
         self.exec_tile.set_value(str(self.execution_table.rowCount()))
         self.playbookExecuted.emit(playbook)
+
+    def _apply_template(self) -> None:
+        template_name = self.template_selector.currentText().strip()
+        steps = self.RESPONSE_TEMPLATES.get(template_name, [])
+        self.checklist.clear()
+        for step in steps:
+            QListWidgetItem(step, self.checklist)
+        self.status.setText(f"Plantilla aplicada: {template_name}")
+        self.templateApplied.emit(template_name)
