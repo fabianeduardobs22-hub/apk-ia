@@ -16,6 +16,8 @@ setup(
     entry_points={
         "console_scripts": [
             "sentinel-x=sentinel_x_defense_suite.cli.app:main",
+            "decktroy=decktroy.decktroy_cli:main",
+            "Decktroy=decktroy.decktroy_cli:main",
         ]
     },
 )
