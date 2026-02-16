@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import StrEnum
+from concurrent.futures import Future, ThreadPoolExecutor
 import logging
 import math
 from pathlib import Path
@@ -42,9 +42,6 @@ from sentinel_x_defense_suite.gui.runtime_data import build_incremental_runtime_
 from sentinel_x_defense_suite.models.events import PacketRecord
 from sentinel_x_defense_suite.gui.widgets.theme_manager import THEMES, apply_theme
 from sentinel_x_defense_suite.gui.widgets.ui_iconography import ICONS
-from sentinel_x_defense_suite.gui.pages.forensics_timeline_page import ForensicsTimelinePage
-from sentinel_x_defense_suite.gui.pages.incident_response_page import IncidentResponsePage
-from sentinel_x_defense_suite.gui.pages.threat_hunting_page import ThreatHuntingPage
 
 LOGGER = logging.getLogger(__name__)
 
@@ -272,15 +269,17 @@ class MainWindow(QMainWindow):
         self._last_snapshot: dict[str, Any] | None = None
         self._sidebar_syncing = False
         self.capture_status = self._resolve_capture_status()
+        self._snapshot_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runtime-snapshot")
+        self._snapshot_future: Future[dict[str, Any]] | None = None
 
         self.current_role = Role(str(self.settings.value("ui/role", Role.ANALYST.value)))
         self._build_ui()
         self._restore_persistent_state()
 
         self._runtime_timer = QTimer(self)
-        self._runtime_timer.timeout.connect(self._refresh_runtime_watch)
+        self._runtime_timer.timeout.connect(self._queue_runtime_watch_refresh)
         self._runtime_timer.start(1500)
-        self._refresh_runtime_watch()
+        self._queue_runtime_watch_refresh()
 
 
     def _resolve_capture_status(self) -> str:
@@ -495,6 +494,8 @@ class MainWindow(QMainWindow):
         return tab
 
     def _build_threat_hunting_page(self) -> QWidget:
+        from sentinel_x_defense_suite.gui.pages.threat_hunting_page import ThreatHuntingPage
+
         self.threat_hunting_page = ThreatHuntingPage()
         self.threat_hunting_page.queryChanged.connect(self._on_threat_query)
         self.threat_hunting_page.entity_pivot.currentTextChanged.connect(lambda v: self.settings.setValue("filters/pivot", v))
@@ -502,14 +503,70 @@ class MainWindow(QMainWindow):
         return self.threat_hunting_page
 
     def _build_incident_response_page(self) -> QWidget:
+        from sentinel_x_defense_suite.gui.pages.incident_response_page import IncidentResponsePage
+
         self.incident_response_page = IncidentResponsePage()
         self.incident_response_page.playbookExecuted.connect(self._on_playbook_executed)
         self.incident_response_page.templateApplied.connect(self._on_incident_template_applied)
         return self.incident_response_page
 
     def _build_forensics_page(self) -> QWidget:
+        from sentinel_x_defense_suite.gui.pages.forensics_timeline_page import ForensicsTimelinePage
+
         self.forensics_page = ForensicsTimelinePage()
         return self.forensics_page
+
+    def closeEvent(self, event: object) -> None:  # noqa: N802
+        self._runtime_timer.stop()
+        self._snapshot_executor.shutdown(wait=False, cancel_futures=True)
+        super().closeEvent(event)
+
+    def _switch_to_route(self, route_id: str) -> None:
+        if not DEFAULT_POLICY.allows_view(self.current_role, route_id):
+            QMessageBox.warning(self, "Acceso denegado", "No tienes permisos para abrir esta vista.")
+            return
+
+        page = self._route_widgets.get(route_id)
+        if page is None:
+            page = self._router.build_page(route_id)
+            self._wire_page(route_id, page)
+            self._route_widgets[route_id] = page
+            self._route_indices[route_id] = self.page_stack.addWidget(page)
+
+        self.page_stack.setCurrentIndex(self._route_indices[route_id])
+        self.settings.setValue("ui/last_route", route_id)
+
+    def _wire_page(self, route_id: str, page: QWidget) -> None:
+        if route_id == "dashboard":
+            self.dashboard_page = page
+            self.table = page.table
+            self.details_tabs = page.details_tabs
+            self.ops_tabs = page.ops_tabs
+            self.incoming_connections_list = page.incoming_connections_list
+            self.service_versions_list = page.service_versions_list
+            self.globe_widget = page.globe_widget
+            self.table.itemSelectionChanged.connect(self._on_row_selected)
+            self.incoming_connections_list.itemDoubleClicked.connect(self._open_incoming_connection_detail)
+            self.service_versions_list.itemDoubleClicked.connect(self._open_service_version_detail)
+        elif route_id == "hunting":
+            self.threat_hunting_page = page
+            self.threat_hunting_page.queryChanged.connect(self._on_threat_query)
+        elif route_id == "incident_response":
+            self.incident_response_page = page
+        elif route_id == "forensics":
+            self.forensics_page = page
+        elif route_id == "alerts":
+            self.alerts_page = page
+            self.alerts_page.ack_button.clicked.connect(lambda: self._run_action("alerts.acknowledge"))
+            self.alerts_page.escalate_button.clicked.connect(lambda: self._run_action("alerts.escalate"))
+
+    def _go_to_navigation_query(self) -> None:
+        route = self._router.route_for_query(self.nav_search_input.text())
+        if route is None:
+            self.statusBar().showMessage("No se encontró módulo/función", 3000)
+            return
+        self._switch_to_route(route.route_id)
+        self.statusBar().showMessage(f"Ruta abierta: {route.sidebar_label}", 3000)
 
     def _on_role_changed(self) -> None:
         self.current_role = Role(str(self.role_selector.currentData()))
@@ -728,8 +785,33 @@ class MainWindow(QMainWindow):
         self.add_packet(packet, "HIGH", 8.2, "US", "Evento simulado", "Bloquear IP temporalmente")
         self._record_audit_action("demo.event.generate", "SOC", "Se inyectó evento simulado para validación")
 
-    def _refresh_runtime_watch(self) -> None:
-        incremental = build_incremental_runtime_snapshot(self._last_snapshot, include_service_versions=True)
+    def _queue_runtime_watch_refresh(self) -> None:
+        if self._snapshot_future is None:
+            self._snapshot_future = self._snapshot_executor.submit(
+                build_incremental_runtime_snapshot,
+                self._last_snapshot,
+                include_service_versions=True,
+            )
+            return
+
+        if not self._snapshot_future.done():
+            return
+
+        try:
+            incremental = self._snapshot_future.result()
+        except Exception:  # pragma: no cover - respaldo defensivo
+            LOGGER.exception("Error refrescando runtime snapshot en worker")
+            self._snapshot_future = None
+            return
+
+        self._snapshot_future = self._snapshot_executor.submit(
+            build_incremental_runtime_snapshot,
+            self._last_snapshot,
+            include_service_versions=True,
+        )
+        self._refresh_runtime_watch(incremental)
+
+    def _refresh_runtime_watch(self, incremental: dict[str, Any]) -> None:
         snapshot = incremental.get("full_snapshot", {})
         snapshot["capture_status"] = self.capture_status
         self.contracts.snapshot = snapshot

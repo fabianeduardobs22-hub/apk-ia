@@ -72,7 +72,9 @@ def test_persistent_state_restores_last_module_and_tab(monkeypatch, tmp_path) ->
     second = MainWindow()
     second._runtime_timer.stop()
 
-    assert second.router.current_route() == ModuleRoute.FORENSICS_TIMELINE.value
+    assert second.router.current_route() == "Forensics Timeline"
+    assert second.nav_list.currentItem() is not None
+    assert second.nav_list.currentItem().text() == "Forensics Timeline"
     assert second.details_tabs.currentIndex() == 2
     assert second.search_input.text() == "dns beacon"
 
@@ -102,4 +104,30 @@ def test_critical_soc_components_render_structure(monkeypatch) -> None:
     assert expected_workspace_tabs.issubset(rendered_workspace_tabs)
 
     win.close()
+    app.processEvents()
+
+
+def test_sidebar_navigation_persists_selected_module_between_sessions(monkeypatch, tmp_path) -> None:
+    _patch_runtime_snapshot(monkeypatch)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+
+    app = QApplication.instance() or QApplication([])
+
+    first = MainWindow()
+    first._runtime_timer.stop()
+    first.nav_list.setCurrentRow(2)
+    assert first.router.current_route() == "Incident Response"
+    first.settings.sync()
+    first.close()
+    app.processEvents()
+
+    second = MainWindow()
+    second._runtime_timer.stop()
+
+    assert second.router.current_route() == "Incident Response"
+    assert second.nav_list.currentItem() is not None
+    assert second.nav_list.currentItem().text() == "Incident Response"
+
+    second.close()
     app.processEvents()
