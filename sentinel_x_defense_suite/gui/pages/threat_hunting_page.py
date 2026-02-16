@@ -7,9 +7,8 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -42,14 +41,13 @@ class ThreatHuntingPage(QWidget):
         filters_layout.addWidget(QLabel("Severidad"), 1, 2)
         filters_layout.addWidget(self.severity_filter, 1, 3)
         filters_layout.addWidget(self.apply_button, 0, 4, 2, 1)
-
         root.addWidget(filters_box)
 
-        self.results_table = QTableWidget(0, 6)
-        self.results_table.setHorizontalHeaderLabels(["Hora", "Entidad", "Valor", "Severidad", "Detección", "Badge"])
-        self.results_table.setSortingEnabled(True)
+        self.export_toolbar = ModuleExportToolbar()
+        root.addWidget(self.export_toolbar)
 
-        root.addWidget(self.results_table)
+        self.workflow = DrillDownWorkflowWidget()
+        root.addWidget(self.workflow)
 
         metrics_row = QHBoxLayout()
         self.matches_tile = MetricTile("Resultados", "0")
@@ -66,8 +64,11 @@ class ThreatHuntingPage(QWidget):
         status_row.addStretch(1)
         root.addLayout(status_row)
 
+        self._records: list[HuntingFinding] = []
         self.apply_button.clicked.connect(self._emit_query)
         self.query_input.returnPressed.connect(self._emit_query)
+        self.export_toolbar.exportRequested.connect(self._export)
+        self.workflow.actionRequested.connect(self._on_action_requested)
 
     def _emit_query(self) -> None:
         query = self.query_input.text().strip()
