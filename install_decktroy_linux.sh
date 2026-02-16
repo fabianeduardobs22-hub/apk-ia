@@ -7,6 +7,7 @@ APP_DIR="${INSTALL_ROOT}/app"
 VENV_DIR="${INSTALL_ROOT}/venv"
 BIN_DIR="${HOME}/.local/bin"
 DESKTOP_DIR="${HOME}/.local/share/applications"
+BUILD_PROFILE="${DECKTROY_BUILD_PROFILE:-extended}"
 
 SENTINEL_PATH="${BIN_DIR}/sentinel-x"
 DECKTROY_PATH="${BIN_DIR}/decktroy"
@@ -38,19 +39,44 @@ install_system_dependencies() {
 
   if has_cmd apt-get; then
     run_root apt-get update -y
-    run_root apt-get install -y python3 python3-pip python3-venv libpcap-dev build-essential libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0
+    run_root apt-get install -y python3 python3-pip python3-venv libpcap-dev build-essential libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0 iproute2 xdg-utils
   elif has_cmd dnf; then
-    run_root dnf install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11 libdbusmenu-qt5
+    run_root dnf install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11 libdbusmenu-qt5 iproute xdg-utils
   elif has_cmd yum; then
-    run_root yum install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11
+    run_root yum install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11 iproute xdg-utils
   elif has_cmd pacman; then
-    run_root pacman -Sy --noconfirm python python-pip python-virtualenv libpcap base-devel mesa libxkbcommon
+    run_root pacman -Sy --noconfirm python python-pip python-virtualenv libpcap base-devel mesa libxkbcommon iproute2 xdg-utils
   elif has_cmd zypper; then
     run_root zypper --non-interactive refresh
-    run_root zypper --non-interactive install python3 python3-pip python3-virtualenv libpcap-devel gcc Mesa-libGL1 libxkbcommon-x11-0
+    run_root zypper --non-interactive install python3 python3-pip python3-virtualenv libpcap-devel gcc Mesa-libGL1 libxkbcommon-x11-0 iproute2 xdg-utils
   else
     log "No se detectó un gestor de paquetes compatible."
-    log "Instala manualmente: python3, pip, venv, toolchain de compilación y librerías GUI (OpenGL/xkbcommon)."
+    log "Instala manualmente: python3, pip, venv, toolchain de compilación, librerías GUI y utilidades de red (ss/iproute2)."
+  fi
+}
+
+validate_build_profile() {
+  case "${BUILD_PROFILE}" in
+    core|extended)
+      ;;
+    *)
+      log "Perfil inválido DECKTROY_BUILD_PROFILE='${BUILD_PROFILE}'. Usa: core o extended."
+      exit 1
+      ;;
+  esac
+}
+
+verify_runtime_tools() {
+  local missing=0
+  for cmd in ss python3; do
+    if ! has_cmd "${cmd}"; then
+      log "Advertencia: no se encontró '${cmd}' en PATH."
+      missing=1
+    fi
+  done
+
+  if [[ ${missing} -eq 1 ]]; then
+    log "Algunas funciones pueden degradarse hasta instalar los binarios faltantes."
   fi
 }
 
@@ -73,12 +99,16 @@ copy_project_source() {
 }
 
 create_virtualenv() {
-  log "Creando entorno virtual en ${VENV_DIR}"
+  log "Creando entorno virtual en ${VENV_DIR} (perfil=${BUILD_PROFILE})"
   rm -rf "${VENV_DIR}"
   python3 -m venv "${VENV_DIR}"
   "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel
   "${VENV_DIR}/bin/python" -m pip install -r "${APP_DIR}/requirements.txt"
-  "${VENV_DIR}/bin/python" -m pip install -e "${APP_DIR}"
+  if [[ "${BUILD_PROFILE}" == "extended" ]]; then
+    SENTINELX_BUILD_PROFILE=extended "${VENV_DIR}/bin/python" -m pip install -e "${APP_DIR}[extended]"
+  else
+    SENTINELX_BUILD_PROFILE=core "${VENV_DIR}/bin/python" -m pip install -e "${APP_DIR}"
+  fi
 }
 
 create_wrappers() {
@@ -118,10 +148,12 @@ if [[ "${DECKTROY_SKIP_SYSTEM_DEPS:-0}" == "1" ]]; then
 else
   install_system_dependencies
 fi
+validate_build_profile
 copy_project_source
 create_virtualenv
 create_wrappers
 install_desktop_entry
+verify_runtime_tools
 
 if ! echo ":${PATH}:" | grep -q ":${HOME}/.local/bin:"; then
   log "Aviso: ${HOME}/.local/bin no está en PATH para esta sesión."
