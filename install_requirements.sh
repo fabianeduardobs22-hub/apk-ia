@@ -5,40 +5,6 @@ info() { printf '\033[96m[INFO]\033[0m %s\n' "$1"; }
 warn() { printf '\033[93m[WARN]\033[0m %s\n' "$1"; }
 err()  { printf '\033[91m[ERR ]\033[0m %s\n' "$1"; }
 
-TARGET="auto"
-
-usage() {
-  cat <<'EOF'
-Uso:
-  ./install_requirements.sh [--target auto|termux|apt|dnf|pacman|zypper]
-
-Ejemplos:
-  ./install_requirements.sh
-  ./install_requirements.sh --target termux
-  ./install_requirements.sh --target apt
-EOF
-}
-
-parse_args() {
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      --target)
-        TARGET="${2:-}"
-        shift 2
-        ;;
-      -h|--help)
-        usage
-        exit 0
-        ;;
-      *)
-        err "Argumento no reconocido: $1"
-        usage
-        exit 1
-        ;;
-    esac
-  done
-}
-
 is_termux() {
   [[ "${PREFIX:-}" == *"com.termux"* ]] || [[ -n "${TERMUX_VERSION:-}" ]]
 }
@@ -73,16 +39,16 @@ os_like() {
 }
 
 install_termux() {
-  info "Instalando en Termux (sin root)."
+  info "Entorno Termux detectado (sin root)."
   pkg update -y
   pkg upgrade -y
+
+  info "Instalando dependencias base para ejecución en Termux..."
   pkg install -y python git termux-api iproute2 net-tools
 
-  info "Intentando paquetes Bluetooth adicionales en Termux (si están disponibles)..."
-  pkg install -y bluez bluez-tools 2>/dev/null || warn "bluez/bluez-tools no disponibles en este repositorio Termux."
-
-  warn "En Termux, bluetoothctl/hcitool/sdptool pueden no estar disponibles según Android/paquetes/permisos."
-  warn "Instala Termux:API y concede permisos del sistema para telemetría local."
+  warn "En Termux, Bluetooth de bajo nivel depende de Android y permisos del dispositivo."
+  warn "Instala Termux:API y concede permisos del sistema para telemetría de red local."
+  info "Instalación base en Termux finalizada."
 }
 
 install_apt_family() {
@@ -124,66 +90,40 @@ print_github_tools_note() {
 EOF
 }
 
-detect_target() {
-  if is_termux; then
-    echo "termux"
-    return
-  fi
-  if command -v apt-get >/dev/null 2>&1 || os_like debian || os_like ubuntu || os_like kali; then
-    echo "apt"
-    return
-  fi
-  if command -v dnf >/dev/null 2>&1 || os_like fedora || os_like rhel || os_like centos; then
-    echo "dnf"
-    return
-  fi
-  if command -v pacman >/dev/null 2>&1 || os_like arch || os_like manjaro; then
-    echo "pacman"
-    return
-  fi
-  if command -v zypper >/dev/null 2>&1 || os_like suse || os_like opensuse; then
-    echo "zypper"
-    return
-  fi
-  echo "unknown"
-}
-
 main() {
-  parse_args "$@"
-
-  local selected="$TARGET"
-  if [[ "$selected" == "auto" ]]; then
-    selected="$(detect_target)"
-    info "Detección automática: $selected"
-  else
-    info "Target forzado por usuario: $selected"
+  if is_termux; then
+    install_termux
+    print_github_tools_note
+    exit 0
   fi
 
-  case "$selected" in
-    termux)
-      install_termux
-      ;;
-    apt)
-      install_apt_family
-      ;;
-    dnf)
-      install_dnf_family
-      ;;
-    pacman)
-      install_pacman_family
-      ;;
-    zypper)
-      install_zypper_family
-      ;;
-    *)
-      err "No se detectó un gestor soportado automáticamente (pkg/apt/dnf/pacman/zypper)."
-      warn "Instala manualmente: python3, git, bluez, bluez-tools, net-tools, iproute2, NetworkManager, rfkill."
-      exit 1
-      ;;
-  esac
+  if command -v apt-get >/dev/null 2>&1 || os_like debian || os_like ubuntu || os_like kali; then
+    install_apt_family
+    print_github_tools_note
+    exit 0
+  fi
 
-  print_github_tools_note
-  info "Instalación finalizada."
+  if command -v dnf >/dev/null 2>&1 || os_like fedora || os_like rhel || os_like centos; then
+    install_dnf_family
+    print_github_tools_note
+    exit 0
+  fi
+
+  if command -v pacman >/dev/null 2>&1 || os_like arch || os_like manjaro; then
+    install_pacman_family
+    print_github_tools_note
+    exit 0
+  fi
+
+  if command -v zypper >/dev/null 2>&1 || os_like suse || os_like opensuse; then
+    install_zypper_family
+    print_github_tools_note
+    exit 0
+  fi
+
+  err "No se detectó un gestor soportado automáticamente (pkg/apt/dnf/pacman/zypper)."
+  warn "Instala manualmente: python3, git, bluez, bluez-tools, net-tools, iproute2, NetworkManager, rfkill."
+  exit 1
 }
 
 main "$@"
