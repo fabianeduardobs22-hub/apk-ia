@@ -2,8 +2,15 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALLER="${ROOT_DIR}/packaging/install_sentinel_x.sh"
-LAUNCHER="${HOME}/.local/bin/Decktroy"
+INSTALL_ROOT="${HOME}/.local/share/decktroy"
+APP_DIR="${INSTALL_ROOT}/app"
+VENV_DIR="${INSTALL_ROOT}/venv"
+BIN_DIR="${HOME}/.local/bin"
+DESKTOP_DIR="${HOME}/.local/share/applications"
+
+SENTINEL_PATH="${BIN_DIR}/sentinel-x"
+DECKTROY_PATH="${BIN_DIR}/decktroy"
+DECKTROY_UPPER_PATH="${BIN_DIR}/Decktroy"
 
 log() {
   echo "[install_decktroy_linux] $*"
@@ -27,50 +34,104 @@ run_root() {
 }
 
 install_system_dependencies() {
-  log "Verificando dependencias base del sistema..."
-
-  local pkgs=(python3 python3-pip python3-venv)
+  log "Verificando dependencias del sistema..."
 
   if has_cmd apt-get; then
-    log "Gestor detectado: apt-get"
     run_root apt-get update -y
-    run_root apt-get install -y "${pkgs[@]}" libpcap-dev build-essential
+    run_root apt-get install -y python3 python3-pip python3-venv libpcap-dev build-essential
   elif has_cmd dnf; then
-    log "Gestor detectado: dnf"
     run_root dnf install -y python3 python3-pip python3-virtualenv libpcap-devel gcc
   elif has_cmd yum; then
-    log "Gestor detectado: yum"
     run_root yum install -y python3 python3-pip python3-virtualenv libpcap-devel gcc
   elif has_cmd pacman; then
-    log "Gestor detectado: pacman"
     run_root pacman -Sy --noconfirm python python-pip python-virtualenv libpcap base-devel
   elif has_cmd zypper; then
-    log "Gestor detectado: zypper"
     run_root zypper --non-interactive refresh
     run_root zypper --non-interactive install python3 python3-pip python3-virtualenv libpcap-devel gcc
   else
-    log "No se detectó gestor compatible. Continuando sin auto-instalación de paquetes del sistema."
+    log "No se detectó un gestor de paquetes compatible."
+    log "Instala manualmente: python3, pip, venv y dependencias de compilación."
   fi
 }
 
-if ! has_cmd python3; then
-  log "python3 no encontrado; intentando instalarlo"
+ensure_file_path() {
+  local path="$1"
+  if [[ -d "${path}" ]]; then
+    local backup="${path}.backup.$(date +%s)"
+    log "Se encontró un directorio en ${path}; moviendo respaldo a ${backup}"
+    mv "${path}" "${backup}"
+  fi
+}
+
+copy_project_source() {
+  log "Copiando proyecto a ${APP_DIR}"
+  mkdir -p "${INSTALL_ROOT}"
+  rm -rf "${APP_DIR}"
+  mkdir -p "${APP_DIR}"
+  cp -a "${ROOT_DIR}/." "${APP_DIR}/"
+  rm -rf "${APP_DIR}/.git"
+}
+
+create_virtualenv() {
+  log "Creando entorno virtual en ${VENV_DIR}"
+  rm -rf "${VENV_DIR}"
+  python3 -m venv "${VENV_DIR}"
+  "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel
+  "${VENV_DIR}/bin/python" -m pip install -r "${APP_DIR}/requirements.txt"
+  "${VENV_DIR}/bin/python" -m pip install -e "${APP_DIR}"
+}
+
+create_wrappers() {
+  mkdir -p "${BIN_DIR}"
+  ensure_file_path "${SENTINEL_PATH}"
+  ensure_file_path "${DECKTROY_PATH}"
+  ensure_file_path "${DECKTROY_UPPER_PATH}"
+
+  cat > "${SENTINEL_PATH}" <<WRAPPER
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${VENV_DIR}/bin/python" -m sentinel_x_defense_suite.cli.app "\$@"
+WRAPPER
+
+  cat > "${DECKTROY_PATH}" <<WRAPPER
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${VENV_DIR}/bin/python" -m decktroy.decktroy_cli "\$@"
+WRAPPER
+
+  cat > "${DECKTROY_UPPER_PATH}" <<WRAPPER
+#!/usr/bin/env bash
+set -euo pipefail
+exec "${BIN_DIR}/decktroy" "\$@"
+WRAPPER
+
+  chmod +x "${SENTINEL_PATH}" "${DECKTROY_PATH}" "${DECKTROY_UPPER_PATH}"
+}
+
+install_desktop_entry() {
+  mkdir -p "${DESKTOP_DIR}"
+  cp "${APP_DIR}/packaging/sentinel-x.desktop" "${DESKTOP_DIR}/sentinel-x.desktop"
+}
+
+if [[ "${DECKTROY_SKIP_SYSTEM_DEPS:-0}" == "1" ]]; then
+  log "Saltando dependencias del sistema (DECKTROY_SKIP_SYSTEM_DEPS=1)."
+else
+  install_system_dependencies
+fi
+copy_project_source
+create_virtualenv
+create_wrappers
+install_desktop_entry
+
+if ! echo ":${PATH}:" | grep -q ":${HOME}/.local/bin:"; then
+  log "Aviso: ${HOME}/.local/bin no está en PATH para esta sesión."
+  log "Puedes ejecutar temporalmente: export PATH=\"${HOME}/.local/bin:$PATH\""
 fi
 
-install_system_dependencies
-
-if [[ ! -x "${INSTALLER}" ]]; then
-  log "No se encontró instalador interno: ${INSTALLER}"
-  exit 1
+if [[ "${DECKTROY_NO_AUTOLAUNCH:-0}" == "1" ]]; then
+  log "Instalación completada. Autoarranque deshabilitado (DECKTROY_NO_AUTOLAUNCH=1)."
+  exit 0
 fi
 
-log "Instalando Decktroy/Sentinel X..."
-bash "${INSTALLER}"
-
-if [[ ! -x "${LAUNCHER}" ]]; then
-  log "No se pudo crear el lanzador ${LAUNCHER}"
-  exit 1
-fi
-
-log "Instalación completada. Iniciando GUI nativa..."
-exec "${LAUNCHER}" "$@"
+log "Instalación completada. Iniciando interfaz gráfica..."
+exec "${DECKTROY_UPPER_PATH}" "$@"
