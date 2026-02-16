@@ -105,13 +105,13 @@ class MainWindow(QMainWindow):
         menu_tools = bar.addMenu("Herramientas")
         action_settings = QAction("Configuración rápida", self)
         action_settings.triggered.connect(self._show_runtime_settings_popup)
-        action_refresh_now = QAction("Refrescar telemetría en vivo", self)
-        action_refresh_now.triggered.connect(self._refresh_runtime_watch)
+        action_simulate = QAction("Generar evento de demostración", self)
+        action_simulate.triggered.connect(self._simulate_demo_event)
         action_ioc = QAction("Copiar IOC de conexión seleccionada", self)
         action_ioc.triggered.connect(self._copy_selected_ioc)
         menu_tools.addAction(action_settings)
-        menu_tools.addAction(action_refresh_now)
         menu_tools.addSeparator()
+        menu_tools.addAction(action_simulate)
         menu_tools.addAction(action_ioc)
 
         menu_help = bar.addMenu("Ayuda")
@@ -134,13 +134,10 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addWidget(self.search_input)
 
-        self.refresh_button = QPushButton("Refrescar ahora")
-        self.refresh_button.clicked.connect(self._refresh_runtime_watch)
-        self.contain_button = QPushButton("Playbook contención")
-        self.contain_button.clicked.connect(self._run_containment_playbook)
+        self.quick_action_button = QPushButton("Evento demo")
+        self.quick_action_button.clicked.connect(self._simulate_demo_event)
         toolbar.addSeparator()
-        toolbar.addWidget(self.refresh_button)
-        toolbar.addWidget(self.contain_button)
+        toolbar.addWidget(self.quick_action_button)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, toolbar)
 
     def _build_sidebar(self) -> QWidget:
@@ -295,9 +292,8 @@ class MainWindow(QMainWindow):
         self.card_critical = self._create_card("Críticos", "0")
         self.card_unique_ips = self._create_card("IPs únicas", "0")
         self.card_protocol = self._create_card("Protocolo top", "-", value_size=16)
-        self.card_exposed = self._create_card("Servicios públicos", "0", value_size=20)
 
-        for card in (self.card_events, self.card_critical, self.card_unique_ips, self.card_protocol, self.card_exposed):
+        for card in (self.card_events, self.card_critical, self.card_unique_ips, self.card_protocol):
             row.addWidget(card)
         return cards
 
@@ -448,139 +444,6 @@ class MainWindow(QMainWindow):
         self.card_critical._value_label.setText(str(critical_count))  # type: ignore[attr-defined]
         self.card_unique_ips._value_label.setText(str(unique_ips))  # type: ignore[attr-defined]
         self.card_protocol._value_label.setText(protocol_top)  # type: ignore[attr-defined]
-
-    def _refresh_runtime_watch(self) -> None:
-        snapshot = build_runtime_snapshot()
-
-        services = snapshot["services"][:60]
-        if services:
-            lines = ["PROTO  ESTADO   BIND                PUERTO  SERVICIO      PROCESO"]
-            for svc in services:
-                lines.append(
-                    f"{svc['protocol']:<6} {svc['state']:<8} {svc['bind_ip']:<18} {svc['port']:<6} {svc['service']:<12} {svc['process']}"
-                )
-            self.services_text.setPlainText("\n".join(lines))
-        else:
-            self.services_text.setPlainText("No se detectaron sockets en escucha")
-
-        active = snapshot["active_connections"][:80]
-        if active:
-            lines = ["PROTO ESTADO     ORIGEN                 DESTINO"]
-            for conn in active:
-                lines.append(
-                    f"{conn['protocol']:<5} {conn['state']:<9} {conn['src_ip']}:{conn['src_port']} -> {conn['dst_ip']}:{conn['dst_port']}"
-                )
-            self.connections_text.setPlainText("\n".join(lines))
-        else:
-            self.connections_text.setPlainText("Sin conexiones activas detectadas")
-
-        self.globe_text.setPlainText("\n".join(snapshot["globe_lines"]))
-        self.actions_text.setPlainText("\n".join(snapshot["actions"]))
-        self.exposure_text.setPlainText("\n".join(snapshot["exposure_lines"]))
-        self.card_exposed._value_label.setText(str(snapshot["public_service_count"]))  # type: ignore[attr-defined]
-        self._sync_services_to_table(snapshot["services"], snapshot["active_connections"])
-
-        mission_lines = [
-            "Centro de misión defensivo:",
-            f"- Servicios públicos detectados: {snapshot['public_service_count']}",
-            f"- Conexiones activas: {len(snapshot['active_connections'])}",
-            f"- Conexiones remotas sospechosas: {len(snapshot['remote_suspicious'])}",
-            "",
-            *snapshot["actions"],
-        ]
-        self.mission_tab.setPlainText("\n".join(mission_lines))
-
-        suspicious = snapshot["remote_suspicious"]
-        if suspicious:
-            top = suspicious[0]
-            self.statusBar().showMessage(
-                f"Monitoreo activo: conexiones remotas detectadas ({top['dst_ip']}:{top['dst_port']})",
-                2500,
-            )
-
-    def _sync_services_to_table(self, services: list[dict], active_connections: list[dict]) -> None:
-        self.table.setRowCount(0)
-        self._rows.clear()
-
-        for svc in services[:120]:
-            bind_ip = str(svc.get("bind_ip", "unknown"))
-            port = int(svc.get("port", 0) or 0)
-            protocol = str(svc.get("protocol", "tcp")).upper()
-            process = str(svc.get("process", "unknown"))
-            service_name = str(svc.get("service", "unknown"))
-            exposed = bind_ip in {"0.0.0.0", "::"}
-            risk = "MEDIUM" if exposed else "LOW"
-            score = 65.0 if exposed else 25.0
-            summary = (
-                f"Servicio detectado: {service_name} | proceso={process} | bind={bind_ip}:{port}"
-                + (" | expuesto públicamente" if exposed else " | alcance local/restringido")
-            )
-            recommendation = (
-                "Validar necesidad de exposición pública y limitar por firewall/ACL."
-                if exposed
-                else "Mantener monitoreo y hardening del servicio."
-            )
-
-            packet = PacketRecord.now(
-                src_ip=bind_ip,
-                dst_ip="0.0.0.0",
-                src_port=port,
-                dst_port=port,
-                protocol=protocol,
-                length=0,
-                payload=b"",
-                metadata={"service": service_name, "process": process, "state": svc.get("state", "UNKNOWN")},
-            )
-            self.add_packet(
-                packet=packet,
-                risk_level=risk,
-                risk_score=score,
-                country="LOCAL",
-                analysis_summary=summary,
-                recommendation=recommendation,
-            )
-
-        # Add active remote connections as operational context
-        for conn in active_connections[:80]:
-            if str(conn.get("state", "")).upper() not in {"ESTAB", "SYN-RECV", "SYN-SENT"}:
-                continue
-            dst_ip = str(conn.get("dst_ip", "unknown"))
-            dst_port = int(conn.get("dst_port", 0) or 0)
-            src_ip = str(conn.get("src_ip", "unknown"))
-            src_port = int(conn.get("src_port", 0) or 0)
-            protocol = str(conn.get("protocol", "tcp")).upper()
-            service_name = str(conn.get("service", "unknown"))
-            summary = f"Conexión activa: {src_ip}:{src_port} -> {dst_ip}:{dst_port} svc={service_name}"
-
-            packet = PacketRecord.now(
-                src_ip=src_ip,
-                dst_ip=dst_ip,
-                src_port=src_port,
-                dst_port=dst_port,
-                protocol=protocol,
-                length=0,
-                payload=b"",
-                metadata={"service": service_name, "state": conn.get("state", "UNKNOWN")},
-            )
-            self.add_packet(
-                packet=packet,
-                risk_level="MEDIUM",
-                risk_score=55.0,
-                country="Unknown",
-                analysis_summary=summary,
-                recommendation="Correlacionar con baseline para descartar exfiltración o C2.",
-            )
-
-    def _run_containment_playbook(self) -> None:
-        commands = [
-            "sudo ss -tulpen | sort",
-            "sudo ufw status numbered",
-            "sudo journalctl -n 200 --no-pager | grep -Ei 'failed|invalid|denied|attack'",
-            "decktroy connection-guard --mode analyze --duration 60",
-        ]
-        QApplication.clipboard().setText("\n".join(commands))
-        self.actions_text.setPlainText("Playbook copiado al portapapeles:\n" + "\n".join(commands))
-        self.statusBar().showMessage("Playbook de contención copiado", 3000)
 
     def _refresh_timeline_tab(self) -> None:
         lines = ["Timeline de eventos recientes (hasta 100):"]
