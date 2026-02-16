@@ -201,6 +201,7 @@ def build_runtime_snapshot() -> dict[str, Any]:
     ]
 
     service_versions = detect_service_versions()
+    defense_playbook = build_defense_playbook(exposed_internet, remote_hits, incoming_connections)
 
     return {
         "services": services,
@@ -213,7 +214,55 @@ def build_runtime_snapshot() -> dict[str, Any]:
         "public_service_count": len(exposed_internet),
         "service_versions": service_versions,
         "globe_points": globe_points,
+        "defense_playbook": defense_playbook,
     }
+
+
+def build_defense_playbook(
+    exposed_services: list[dict[str, Any]],
+    remote_suspicious: list[dict[str, Any]],
+    incoming_connections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    score = 100
+    actions: list[str] = [
+        "Playbook defensivo activo:",
+        "1) Mantener monitoreo en tiempo real con validación manual de alertas críticas.",
+    ]
+
+    if exposed_services:
+        score -= min(45, len(exposed_services) * 6)
+        actions.append(
+            "2) Reducir exposición: limitar servicios en 0.0.0.0/:: y aplicar allowlist en firewall perimetral."
+        )
+
+    if remote_suspicious:
+        score -= min(35, len(remote_suspicious) * 3)
+        actions.append("3) Contener destinos remotos sospechosos con reglas temporales (deny/drop) y revisión SIEM.")
+
+    auth_related = [c for c in incoming_connections if c.get("dst_port") in {21, 22, 23, 3389, 5900}]
+    if auth_related:
+        score -= min(25, len(auth_related) * 4)
+        actions.append("4) Endurecer accesos administrativos: MFA, fail2ban y restricción por segmento/VPN.")
+
+    if not exposed_services and not remote_suspicious and not auth_related:
+        actions.append("2) Estado saludable: mantener parches, copias de seguridad verificadas y pruebas de restauración.")
+
+    score = max(0, score)
+    if score >= 80:
+        level = "ROBUSTO"
+    elif score >= 55:
+        level = "ELEVADO"
+    elif score >= 30:
+        level = "ALTO RIESGO"
+    else:
+        level = "CRÍTICO"
+
+    summary = (
+        f"Postura defensiva: {level} · score {score}/100 · "
+        f"servicios expuestos={len(exposed_services)} · remotos sospechosos={len(remote_suspicious)} · "
+        f"conexiones sensibles={len(auth_related)}"
+    )
+    return {"score": score, "level": level, "summary": summary, "actions": actions}
 
 
 def detect_service_versions() -> list[dict[str, Any]]:

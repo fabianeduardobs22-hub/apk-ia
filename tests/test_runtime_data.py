@@ -1,4 +1,5 @@
 from sentinel_x_defense_suite.gui.runtime_data import (
+    build_defense_playbook,
     build_runtime_snapshot,
     detect_service_versions,
     parse_active_connections,
@@ -82,3 +83,22 @@ def test_suggested_service_commands_include_systemctl() -> None:
     svc = {"service": "nginx"}
     cmds = suggested_service_admin_commands(svc)
     assert any("systemctl restart nginx" in c for c in cmds)
+
+
+def test_build_defense_playbook_increases_risk_on_exposure() -> None:
+    playbook = build_defense_playbook(
+        exposed_services=[{"port": 22}, {"port": 443}],
+        remote_suspicious=[{"dst_ip": "203.0.113.10"}],
+        incoming_connections=[{"dst_port": 22}, {"dst_port": 8443}],
+    )
+    assert playbook["score"] < 100
+    assert playbook["level"] in {"ROBUSTO", "ELEVADO", "ALTO RIESGO", "CRÍTICO"}
+    assert "Postura defensiva" in playbook["summary"]
+    assert any("Reducir exposición" in action for action in playbook["actions"])
+
+
+def test_build_defense_playbook_healthy_baseline() -> None:
+    playbook = build_defense_playbook([], [], [])
+    assert playbook["score"] == 100
+    assert playbook["level"] == "ROBUSTO"
+    assert any("Estado saludable" in action for action in playbook["actions"])

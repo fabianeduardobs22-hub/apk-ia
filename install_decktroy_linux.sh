@@ -38,19 +38,19 @@ install_system_dependencies() {
 
   if has_cmd apt-get; then
     run_root apt-get update -y
-    run_root apt-get install -y python3 python3-pip python3-venv libpcap-dev build-essential
+    run_root apt-get install -y python3 python3-pip python3-venv libpcap-dev build-essential libgl1 libegl1 libxkbcommon-x11-0 libdbus-1-3 libxcb-cursor0
   elif has_cmd dnf; then
-    run_root dnf install -y python3 python3-pip python3-virtualenv libpcap-devel gcc
+    run_root dnf install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11 libdbusmenu-qt5
   elif has_cmd yum; then
-    run_root yum install -y python3 python3-pip python3-virtualenv libpcap-devel gcc
+    run_root yum install -y python3 python3-pip python3-virtualenv libpcap-devel gcc mesa-libGL libxkbcommon-x11
   elif has_cmd pacman; then
-    run_root pacman -Sy --noconfirm python python-pip python-virtualenv libpcap base-devel
+    run_root pacman -Sy --noconfirm python python-pip python-virtualenv libpcap base-devel mesa libxkbcommon
   elif has_cmd zypper; then
     run_root zypper --non-interactive refresh
-    run_root zypper --non-interactive install python3 python3-pip python3-virtualenv libpcap-devel gcc
+    run_root zypper --non-interactive install python3 python3-pip python3-virtualenv libpcap-devel gcc Mesa-libGL1 libxkbcommon-x11-0
   else
     log "No se detectó un gestor de paquetes compatible."
-    log "Instala manualmente: python3, pip, venv y dependencias de compilación."
+    log "Instala manualmente: python3, pip, venv, toolchain de compilación y librerías GUI (OpenGL/xkbcommon)."
   fi
 }
 

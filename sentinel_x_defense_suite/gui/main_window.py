@@ -160,11 +160,20 @@ class MainWindow(QMainWindow):
         root_layout.setSpacing(6)
 
         self.sidebar = self._build_sidebar()
-        workspace = self._build_workspace()
+        self.page_stack = QStackedWidget()
+        self.page_stack.addWidget(self._build_workspace())
+        self.page_stack.addWidget(self._build_globe_page())
+        self.page_stack.addWidget(self._build_connections_page())
+        self.page_stack.addWidget(self._build_services_page())
+        self.page_stack.addWidget(self._build_terminal_page())
+        self.page_stack.addWidget(self._build_hunting_page())
+        self.page_stack.addWidget(self._build_forensics_page())
+        self.page_stack.addWidget(self._build_reports_page())
+
         self.operations_panel = self._build_right_operations_panel()
 
         center = QSplitter(Qt.Orientation.Horizontal)
-        center.addWidget(workspace)
+        center.addWidget(self.page_stack)
         center.addWidget(self.operations_panel)
         center.setSizes([1350, 500])
 
@@ -255,6 +264,51 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.global_terminal_output, 1)
         return page
 
+    def _build_hunting_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.hunting_query_input = QLineEdit()
+        self.hunting_query_input.setPlaceholderText("Threat hunting query (ej: dst.ip == 8.8.8.8 and severity >= high)")
+        self.hunting_results = QPlainTextEdit(readOnly=True)
+        self.hunting_results.setPlainText(
+            "Threat Hunting Workspace\n"
+            "- Usa filtros por IP, puerto, servicio y severidad.\n"
+            "- Correlaciona con Timeline y módulo de Forense.\n"
+            "- Guarda consultas para automatización defensiva."
+        )
+        layout.addWidget(QLabel("Threat Hunting"))
+        layout.addWidget(self.hunting_query_input)
+        layout.addWidget(self.hunting_results, 1)
+        return page
+
+    def _build_forensics_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.forensics_timeline_text = QPlainTextEdit(readOnly=True)
+        self.forensics_timeline_text.setPlainText(
+            "Forense y cadena de custodia\n"
+            "- Evidencias más recientes aparecerán aquí.\n"
+            "- Exporta hallazgos desde Archivo > Exportar resumen."
+        )
+        layout.addWidget(QLabel("Forense y evidencias"))
+        layout.addWidget(self.forensics_timeline_text, 1)
+        return page
+
+    def _build_reports_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        self.reports_text = QPlainTextEdit(readOnly=True)
+        self.reports_text.setPlainText(
+            "Reportes y cumplimiento\n"
+            "- Estado de postura defensiva\n"
+            "- Servicios expuestos\n"
+            "- Conexiones sospechosas\n"
+            "- Acciones de mitigación sugeridas"
+        )
+        layout.addWidget(QLabel("Reportes ejecutivos y técnicos"))
+        layout.addWidget(self.reports_text, 1)
+        return page
+
     def _run_live_command(self, entry: QLineEdit, output: QPlainTextEdit) -> None:
         command = entry.text().strip()
         if not command:
@@ -331,6 +385,26 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(side)
         layout.setSpacing(8)
 
+        nav_box = QGroupBox("Centro de módulos")
+        nav_layout = QVBoxLayout(nav_box)
+        self.module_menu = QListWidget()
+        self.module_menu.setObjectName("navMenu")
+        self.module_menu.addItems(
+            [
+                "Dashboard SOC",
+                "Mapa táctico 3D",
+                "Conexiones en vivo",
+                "Servicios y exposición",
+                "Terminal operativa",
+                "Threat Hunting",
+                "Forense",
+                "Reportes",
+            ]
+        )
+        self.module_menu.currentRowChanged.connect(self._switch_page)
+        self.module_menu.setCurrentRow(0)
+        nav_layout.addWidget(self.module_menu)
+
         threat_box = QGroupBox("Nivel global de amenaza")
         threat_layout = QVBoxLayout(threat_box)
         self.threat_level = QLabel("LOW")
@@ -400,7 +474,7 @@ class MainWindow(QMainWindow):
         self.topology_text.setPlainText("Topología dinámica (enlaces más activos):\n- Sin datos")
         topology_layout.addWidget(self.topology_text)
 
-        for widget in (threat_box, interfaces_box, alerts_box, protocol_box, globe_box, services_box, exposure_box, connections_box, actions_box, topology_box):
+        for widget in (nav_box, threat_box, interfaces_box, alerts_box, protocol_box, globe_box, services_box, exposure_box, connections_box, actions_box, topology_box):
             layout.addWidget(widget)
         layout.addStretch(1)
         return side
@@ -519,10 +593,23 @@ class MainWindow(QMainWindow):
         services_layout.addWidget(QLabel("Versiones, estado y administración de servicios"))
         services_layout.addWidget(self.service_versions_list)
 
+        playbook_tab = QWidget()
+        playbook_layout = QVBoxLayout(playbook_tab)
+        self.defense_status_label = QLabel("Postura defensiva: inicializando...")
+        self.defense_status_label.setWordWrap(True)
+        self.defense_status_label.setObjectName("defenseStatusLabel")
+        self.defense_score_label = QLabel("Score: --/100")
+        self.defense_playbook_text = QPlainTextEdit()
+        self.defense_playbook_text.setReadOnly(True)
+        playbook_layout.addWidget(self.defense_status_label)
+        playbook_layout.addWidget(self.defense_score_label)
+        playbook_layout.addWidget(self.defense_playbook_text)
+
         self.ops_tabs.addTab(summary_tab, "Funciones")
         self.ops_tabs.addTab(globe_tab, "Globo 3D")
         self.ops_tabs.addTab(connections_tab, "Conexiones")
         self.ops_tabs.addTab(services_tab, "Servicios")
+        self.ops_tabs.addTab(playbook_tab, "Playbook")
 
         layout.addWidget(self.ops_tabs)
         return panel
@@ -589,6 +676,7 @@ class MainWindow(QMainWindow):
             QListWidget#navMenu::item:selected { background-color: #1f6feb; color: #ffffff; }
             QToolBar { background-color: #101b28; border-bottom: 1px solid #22384d; spacing: 8px; }
             QTabWidget::pane { border: 1px solid #22384d; border-radius: 6px; }
+            QLabel#defenseStatusLabel { font-weight: 700; color: #9fd3ff; }
             QPushButton { background-color: #1f6feb; color: white; border-radius: 6px; padding: 6px 12px; font-weight: 700; }
             QPushButton:hover { background-color: #2c81ff; }
             QFrame#socCard { background-color: #101e2d; border: 1px solid #28415a; border-radius: 10px; }
@@ -911,6 +999,30 @@ class MainWindow(QMainWindow):
             item.setData(Qt.ItemDataRole.UserRole, conn)
             self.incoming_connections_list.addItem(item)
 
+        if hasattr(self, "hunting_results"):
+            self.hunting_results.setPlainText(
+                "Threat Hunting Workspace\n"
+                f"- Conexiones activas evaluadas: {len(snapshot.get('active_connections', []))}\n"
+                f"- Destinos remotos sospechosos: {len(snapshot.get('remote_suspicious', []))}\n"
+                "- Recomendación: priorizar entidades con severidad alta y puertos de autenticación."
+            )
+        if hasattr(self, "forensics_timeline_text"):
+            self.forensics_timeline_text.setPlainText(
+                "Forense y cadena de custodia\n"
+                f"- Eventos geográficos correlacionados: {len(snapshot.get('globe_points', []))}\n"
+                f"- Conexiones entrantes observadas: {len(snapshot.get('incoming_connections', []))}\n"
+                "- Exporta evidencia y valida hash de registros para auditoría."
+            )
+        if hasattr(self, "reports_text"):
+            pb = snapshot.get("defense_playbook", {}) if isinstance(snapshot, dict) else {}
+            summary = pb.get("summary", "Sin resumen") if isinstance(pb, dict) else "Sin resumen"
+            self.reports_text.setPlainText(
+                "Reportes y cumplimiento\n"
+                f"- {summary}\n"
+                f"- Servicios expuestos: {snapshot.get('public_service_count', 0)}\n"
+                f"- Acciones sugeridas: {len(snapshot.get('actions', []))}"
+            )
+
         self.service_versions_list.clear()
         for service in snapshot.get("service_versions", [])[:120]:
             if not isinstance(service, dict):
@@ -920,6 +1032,19 @@ class MainWindow(QMainWindow):
             item = QListWidgetItem(label)
             item.setData(Qt.ItemDataRole.UserRole, service)
             self.service_versions_list.addItem(item)
+
+        playbook = snapshot.get("defense_playbook", {})
+        if isinstance(playbook, dict):
+            score = int(playbook.get("score", 0))
+            level = str(playbook.get("level", "N/A"))
+            summary = str(playbook.get("summary", "Sin resumen de postura defensiva."))
+            actions = playbook.get("actions", [])
+            self.defense_status_label.setText(summary)
+            self.defense_score_label.setText(f"Score: {score}/100 · Nivel: {level}")
+            if isinstance(actions, list) and actions:
+                self.defense_playbook_text.setPlainText("\n".join(str(line) for line in actions))
+            else:
+                self.defense_playbook_text.setPlainText("Sin acciones de playbook disponibles.")
 
 
     def _open_incoming_connection_detail(self, item: QListWidgetItem) -> None:

@@ -62,7 +62,32 @@ def test_right_operations_panel_lists_are_present(monkeypatch) -> None:
 
     assert win.incoming_connections_list.count() == 1
     assert win.service_versions_list.count() == 1
-    assert win.ops_tabs.count() == 4
+    assert win.ops_tabs.count() == 5
+    assert "Playbook" in [win.ops_tabs.tabText(i) for i in range(win.ops_tabs.count())]
+    assert "Postura defensiva" in win.defense_status_label.text()
+
+    win.close()
+    app.processEvents()
+
+
+def test_module_menu_exposes_all_premium_sections() -> None:
+    app = QApplication.instance() or QApplication([])
+    win = MainWindow()
+
+    items = [win.module_menu.item(i).text() for i in range(win.module_menu.count())]
+    assert items == [
+        "Dashboard SOC",
+        "Mapa táctico 3D",
+        "Conexiones en vivo",
+        "Servicios y exposición",
+        "Terminal operativa",
+        "Threat Hunting",
+        "Forense",
+        "Reportes",
+    ]
+
+    win.module_menu.setCurrentRow(5)
+    assert win.page_stack.currentIndex() == 5
 
     win.close()
     app.processEvents()
