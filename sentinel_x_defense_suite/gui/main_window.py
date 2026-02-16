@@ -4,7 +4,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 
 from sentinel_x_defense_suite.config.settings import SettingsLoader
 from sentinel_x_defense_suite.core.capability_matrix import default_capability_matrix, summarize_matrix
+from sentinel_x_defense_suite.gui.runtime_data import build_runtime_snapshot
 from sentinel_x_defense_suite.gui.viewmodels import RowMetrics, compute_dashboard_metrics
 from sentinel_x_defense_suite.models.events import PacketRecord
 
@@ -59,6 +60,10 @@ class MainWindow(QMainWindow):
         self._rows: list[ConnectionViewRow] = []
         self._build_ui()
         self._apply_dark_theme()
+        self._runtime_timer = QTimer(self)
+        self._runtime_timer.timeout.connect(self._refresh_runtime_watch)
+        self._runtime_timer.start(3500)
+        self._refresh_runtime_watch()
 
     def _build_ui(self) -> None:
         self._build_menu_bar()
@@ -174,6 +179,34 @@ class MainWindow(QMainWindow):
         self.globe_text.setPlainText("Conexiones geolocalizadas:\n• Sin datos")
         globe_layout.addWidget(self.globe_text)
 
+        services_box = QGroupBox("Servicios expuestos (tiempo real)")
+        services_layout = QVBoxLayout(services_box)
+        self.services_text = QPlainTextEdit()
+        self.services_text.setReadOnly(True)
+        self.services_text.setPlainText("Sin datos de servicios expuestos")
+        services_layout.addWidget(self.services_text)
+
+        exposure_box = QGroupBox("Superficie expuesta")
+        exposure_layout = QVBoxLayout(exposure_box)
+        self.exposure_text = QPlainTextEdit()
+        self.exposure_text.setReadOnly(True)
+        self.exposure_text.setPlainText("Sin resumen de exposición")
+        exposure_layout.addWidget(self.exposure_text)
+
+        connections_box = QGroupBox("Conexiones activas del host")
+        connections_layout = QVBoxLayout(connections_box)
+        self.connections_text = QPlainTextEdit()
+        self.connections_text.setReadOnly(True)
+        self.connections_text.setPlainText("Sin conexiones activas")
+        connections_layout.addWidget(self.connections_text)
+
+        actions_box = QGroupBox("Centro de respuesta (comandos listos)")
+        actions_layout = QVBoxLayout(actions_box)
+        self.actions_text = QPlainTextEdit()
+        self.actions_text.setReadOnly(True)
+        self.actions_text.setPlainText("Comandos defensivos se mostrarán aquí")
+        actions_layout.addWidget(self.actions_text)
+
         topology_box = QGroupBox("Topología dinámica de red")
         topology_layout = QVBoxLayout(topology_box)
         self.topology_text = QPlainTextEdit()
@@ -181,7 +214,7 @@ class MainWindow(QMainWindow):
         self.topology_text.setPlainText("Topología dinámica (enlaces más activos):\n- Sin datos")
         topology_layout.addWidget(self.topology_text)
 
-        for widget in (threat_box, interfaces_box, alerts_box, protocol_box, globe_box, topology_box):
+        for widget in (threat_box, interfaces_box, alerts_box, protocol_box, globe_box, services_box, exposure_box, connections_box, actions_box, topology_box):
             layout.addWidget(widget)
         layout.addStretch(1)
         return side
@@ -223,6 +256,7 @@ class MainWindow(QMainWindow):
         self.response_inspector = QPlainTextEdit(readOnly=True)
         self.timeline_tab = QPlainTextEdit(readOnly=True)
         self.capability_tab = QPlainTextEdit(readOnly=True)
+        self.mission_tab = QPlainTextEdit(readOnly=True)
         self._refresh_capability_tab()
 
         tabs.addTab(self.packet_inspector, "Inspector de paquete")
@@ -230,6 +264,7 @@ class MainWindow(QMainWindow):
         tabs.addTab(self.response_inspector, "Respuesta defensiva")
         tabs.addTab(self.timeline_tab, "Timeline")
         tabs.addTab(self.capability_tab, "Benchmark defensivo")
+        tabs.addTab(self.mission_tab, "Mission control")
 
         self.hex_ascii = QPlainTextEdit()
         self.hex_ascii.setReadOnly(True)
@@ -630,26 +665,6 @@ class MainWindow(QMainWindow):
         layout.addRow(buttons)
         dialog.exec()
 
-    def _simulate_demo_event(self) -> None:
-        demo = PacketRecord.now(
-            src_ip="10.10.10.25",
-            dst_ip="198.51.100.42",
-            src_port=51324,
-            dst_port=443,
-            protocol="TCP",
-            length=512,
-            payload=b"demo_event",
-            metadata={"service": "HTTPS", "source": "demo"},
-        )
-        self.add_packet(
-            packet=demo,
-            risk_level="MEDIUM",
-            risk_score=47.5,
-            country="Unknown",
-            analysis_summary="Conexión periódica detectada; verificar comportamiento esperado.",
-            recommendation="Correlacionar con inventario y validar si el destino es autorizado.",
-        )
-        self.statusBar().showMessage("Evento de demostración agregado", 2500)
 
 
 def launch_gui() -> None:
