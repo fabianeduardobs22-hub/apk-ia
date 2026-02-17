@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-python3 -m sentinel_x_defense_suite.cli.app "$@"
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec "${ROOT_DIR}/bash/sentinel-x.sh" "$@"

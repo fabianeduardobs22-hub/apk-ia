@@ -80,19 +80,19 @@ export PATH="$HOME/.local/bin:$PATH"
 - `Decktroy` abre la GUI nativa de inmediato.
 - El sistema mantiene un enfoque 100% defensivo.
 
-## Arranque, Bash y capa GUI
+## Arranque y operación integral en Bash
 
-- `bin/sentinel-x` **se mantiene como wrapper Bash** para inicialización de entorno y automatización de arranque (`set -euo pipefail` + invocación del módulo CLI).
-- Bash se usa únicamente para bootstrap/orquestación del proceso de ejecución.
-- La **capa GUI principal** permanece implementada en Python/PyQt6 dentro de `sentinel_x_defense_suite/gui/` (no en Bash).
+- `bin/sentinel-x`, `bin/decktroy` y `bin/Decktroy` ejecutan una capa operativa **100% Bash** bajo `bash/`.
+- Se incluye un motor Bash con utilidades de runtime, alertas, exportación y tareas de analista en `bash/lib.sh`.
+- La GUI operativa se ejecuta en Bash vía `whiptail` (con fallback a modo texto) en `bash/gui.sh`, sin depender de la GUI Python para la operación diaria.
 
 ### Rendimiento de arranque/comunicación aplicado
 
-Para mejorar responsividad sin mover la GUI fuera de `sentinel_x_defense_suite/gui/`, se aplicaron estas medidas:
+La versión Bash optimiza arranque y operación mediante:
 
-1. Carga diferida de módulos GUI pesados (`ThreatHuntingPage`, `IncidentResponsePage`, `ForensicsTimelinePage`) en el momento de construir cada vista.
-2. Tareas costosas de snapshot/runtime movidas a un worker con `ThreadPoolExecutor`, evitando bloquear el hilo principal de la UI.
-3. Se conserva `bin/sentinel-x` como wrapper Bash de entrada para inicialización/automatización del entorno.
+1. Dependencias mínimas del sistema (`bash`, utilidades POSIX y opcionalmente `whiptail`).
+2. Recolección de telemetría local en archivos JSON livianos para evitar sobrecarga de procesos pesados.
+3. GUI Bash con fallback automático a modo texto para continuidad operativa en cualquier host Linux.
 
 ## Plan de sprints UI/QA, métricas UX y demo SOC
 

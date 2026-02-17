@@ -1,3 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-python3 -m decktroy.decktroy_cli "$@"
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+exec "${ROOT_DIR}/bash/decktroy.sh" "$@"
