@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from concurrent.futures import Future, ThreadPoolExecutor
+from enum import StrEnum
 import logging
 import math
 from pathlib import Path
@@ -31,6 +32,7 @@ from PyQt6.QtWidgets import (
     QStatusBar,
     QTableWidget,
     QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -306,6 +308,9 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root_layout = QVBoxLayout(root)
 
+        self.module_shortcuts = self._build_module_shortcuts_panel()
+        root_layout.addWidget(self.module_shortcuts)
+
         self.capture_status_banner = QLabel()
         self.capture_status_banner.setObjectName("captureStatusBanner")
         root_layout.addWidget(self.capture_status_banner)
@@ -340,6 +345,24 @@ class MainWindow(QMainWindow):
         status = QStatusBar()
         status.showMessage("Listo · Plataforma defensiva activa")
         self.setStatusBar(status)
+
+    def _build_module_shortcuts_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("moduleShortcuts")
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        for module in self.MODULES:
+            button = QToolButton(panel)
+            button.setText(f"{ICONS.get('module', '◈')}\n{ROUTE_LABELS[module]}")
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            button.setMinimumHeight(72)
+            button.clicked.connect(lambda _checked=False, route=module.value: self._navigate_to_route(route))
+            layout.addWidget(button)
+
+        layout.addStretch(1)
+        return panel
 
     def _build_action_panel(self) -> QWidget:
         panel = QWidget()
@@ -684,9 +707,7 @@ class MainWindow(QMainWindow):
 
         last_module_setting = str(self.settings.value("router/last_module", ModuleRoute.SOC.value))
         last_module = self._normalize_route(last_module_setting) or ModuleRoute.SOC
-        self.router.navigate(last_module.value)
-        self._sync_sidebar_with_route(last_module)
-        self._update_router_buttons()
+        self._navigate_to_route(last_module.value)
 
     def closeEvent(self, event: object) -> None:
         self.settings.setValue("ui/main_splitter_sizes", self.shell_splitter.sizes())
@@ -705,7 +726,12 @@ class MainWindow(QMainWindow):
         if self._sidebar_syncing or not (0 <= index < len(self.MODULES)):
             return
         route = self.MODULES[index]
-        self.router.navigate(route.value)
+        self._navigate_to_route(route.value)
+
+
+    def _navigate_to_route(self, route: str) -> None:
+        self.router.navigate(route)
+        self._sync_sidebar_with_route(route)
         self._update_router_buttons()
 
     def _go_back(self) -> None:

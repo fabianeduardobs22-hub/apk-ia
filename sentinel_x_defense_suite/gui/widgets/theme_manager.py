@@ -92,6 +92,22 @@ def _build_stylesheet(tokens: VisualTokens) -> str:
     QLabel#metricLabel {{ color: {tokens.text_muted}; font-size: {tokens.fonts.size_small}pt; }}
     QLabel#drawerTitle {{ font-size: {tokens.fonts.size_title}pt; font-weight: 700; }}
     QPushButton#drawerAction {{ margin-top: {tokens.spacing.xs}px; }}
+    QWidget#moduleShortcuts {{
+        background: transparent;
+    }}
+    QWidget#moduleShortcuts QToolButton {{
+        background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {tokens.surface}, stop:1 {tokens.background_alt});
+        border: 1px solid {tokens.border};
+        border-radius: {tokens.radius.lg}px;
+        padding: {tokens.spacing.sm}px;
+        min-width: 140px;
+        font-weight: 700;
+    }}
+    QWidget#moduleShortcuts QToolButton:hover {{
+        border-color: {tokens.border_focus};
+        background: {tokens.surface_hover};
+    }}
+    QLabel#summaryValue {{ font-size: {tokens.fonts.size_title}pt; font-weight: 700; }}
     """
 
 
