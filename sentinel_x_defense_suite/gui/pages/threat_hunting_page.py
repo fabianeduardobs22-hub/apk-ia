@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
     QGridLayout,
+    QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -59,6 +61,13 @@ class ThreatHuntingPage(QWidget):
         metrics_row.addStretch(1)
         root.addLayout(metrics_row)
 
+        quick_boards = QHBoxLayout()
+        self.entity_board = self._make_summary_box("Entidad pivote", self.entity_pivot.currentText())
+        self.query_board = self._make_summary_box("Última query", "sin ejecutar")
+        quick_boards.addWidget(self.entity_board)
+        quick_boards.addWidget(self.query_board)
+        root.addLayout(quick_boards)
+
         status_row = QHBoxLayout()
         self.status_badge = QLabel("Estado: idle")
         self.status_badge.setObjectName("statusBadge")
@@ -69,12 +78,17 @@ class ThreatHuntingPage(QWidget):
         self._records: list[HuntingFinding] = []
         self.apply_button.clicked.connect(self._emit_query)
         self.query_input.returnPressed.connect(self._emit_query)
+        self.entity_pivot.currentTextChanged.connect(self._on_pivot_changed)
         self.export_toolbar.exportRequested.connect(self._export)
         self.workflow.actionRequested.connect(self._on_action_requested)
+
+        self._setup_status_animation()
 
     def _emit_query(self) -> None:
         query = self.query_input.text().strip()
         self.status_badge.setText(f"Estado: query ejecutada ({self.entity_pivot.currentText()})")
+        self.query_board.findChild(QLabel, "summaryValue").setText(query or "* todas *")
+        self._pulse_status()
         self.queryChanged.emit(query)
 
     def set_results(self, rows: list[dict[str, str]]) -> None:
@@ -107,6 +121,35 @@ class ThreatHuntingPage(QWidget):
         self.severity_badge.setProperty("severity", top_severity)
         self.severity_badge.style().unpolish(self.severity_badge)
         self.severity_badge.style().polish(self.severity_badge)
+
+
+    def _make_summary_box(self, label: str, value: str) -> QFrame:
+        box = QFrame()
+        box.setObjectName("metricTile")
+        layout = QVBoxLayout(box)
+        t = QLabel(label)
+        t.setObjectName("metricLabel")
+        v = QLabel(value)
+        v.setObjectName("summaryValue")
+        layout.addWidget(t)
+        layout.addWidget(v)
+        return box
+
+    def _on_pivot_changed(self, value: str) -> None:
+        self.entity_board.findChild(QLabel, "summaryValue").setText(value)
+
+    def _setup_status_animation(self) -> None:
+        self._status_effect = QGraphicsOpacityEffect(self.status_badge)
+        self.status_badge.setGraphicsEffect(self._status_effect)
+        self._status_anim = QPropertyAnimation(self._status_effect, b"opacity", self)
+        self._status_anim.setDuration(650)
+        self._status_anim.setStartValue(0.35)
+        self._status_anim.setEndValue(1.0)
+        self._status_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _pulse_status(self) -> None:
+        self._status_anim.stop()
+        self._status_anim.start()
 
     def _export(self, export_format: str) -> None:
         output = export_records("threat_hunting", [record.to_drilldown() for record in self._records], export_format, self)

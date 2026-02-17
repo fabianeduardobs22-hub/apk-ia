@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -76,6 +77,10 @@ class IncidentResponsePage(QWidget):
         self.export_toolbar = ModuleExportToolbar()
         root.addWidget(self.export_toolbar)
 
+        self.mode_hint = QLabel("Modo actual: SAFE")
+        self.mode_hint.setObjectName("statusBadge")
+        root.addWidget(self.mode_hint)
+
         kpi_row = QHBoxLayout()
         self.exec_tile = MetricTile("Playbooks ejecutados", "0")
         kpi_row.addWidget(self.exec_tile)
@@ -113,7 +118,9 @@ class IncidentResponsePage(QWidget):
 
         self._records: list[ResponseTask] = []
         self._load_default_tasks()
+        self._setup_status_animation()
 
+        self.safe_mode.toggled.connect(self._on_safe_mode_toggled)
         self.run_containment.clicked.connect(lambda: self._execute("Containment"))
         self.run_eradication.clicked.connect(lambda: self._execute("Eradication"))
         self.apply_template_button.clicked.connect(self._apply_template)
@@ -147,6 +154,7 @@ class IncidentResponsePage(QWidget):
         template = self.template_selector.currentText()
         self.templateApplied.emit(template)
         self.status.setText(f"Plantilla aplicada: {template}")
+        self._pulse_status()
 
     def _execute(self, playbook: str) -> None:
         mode = "SAFE" if self.safe_mode.isChecked() else "LIVE"
@@ -155,7 +163,25 @@ class IncidentResponsePage(QWidget):
         TimelineRow.append(self.execution_table, [playbook, mode, state, badge])
         self.status.setText(f"Última ejecución: {playbook} ({mode})")
         self.exec_tile.set_value(str(self.execution_table.rowCount()))
+        self._pulse_status()
         self.playbookExecuted.emit(playbook)
+
+
+    def _on_safe_mode_toggled(self, enabled: bool) -> None:
+        self.mode_hint.setText("Modo actual: SAFE" if enabled else "Modo actual: LIVE")
+
+    def _setup_status_animation(self) -> None:
+        self._status_effect = QGraphicsOpacityEffect(self.status)
+        self.status.setGraphicsEffect(self._status_effect)
+        self._status_anim = QPropertyAnimation(self._status_effect, b"opacity", self)
+        self._status_anim.setDuration(600)
+        self._status_anim.setStartValue(0.4)
+        self._status_anim.setEndValue(1.0)
+        self._status_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def _pulse_status(self) -> None:
+        self._status_anim.stop()
+        self._status_anim.start()
 
     def _export(self, export_format: str) -> None:
         output = export_records("incident_response", [record.to_drilldown() for record in self._records], export_format, self)
