@@ -472,13 +472,16 @@ header{{padding:16px 22px;border-bottom:1px solid var(--line);background:linear-
 .brand h1{{margin:0;font-size:20px;letter-spacing:1px;text-transform:uppercase}}
 .sub{{color:var(--muted);font-size:12px;margin-top:4px}}
 .pill{{padding:8px 12px;border-radius:999px;background:#132a55;border:1px solid #3b5da8;font-size:12px}}
-.layout{{display:grid;grid-template-columns:270px 1fr;min-height:calc(100vh - 78px)}}
+.layout{{display:grid;grid-template-columns:300px 1fr 320px;min-height:calc(100vh - 78px)}}
 nav{{border-right:1px solid var(--line);background:linear-gradient(180deg,#09132a,#081126);padding:12px;overflow:auto}}
 .nav-head{{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:8px 4px}}
-nav button{{width:100%;text-align:left;margin:6px 0;padding:10px 12px;border-radius:10px;border:1px solid #2d467f;background:#0f2147;color:#dcebff;cursor:pointer;transition:.2s}}
+nav button{{width:100%;text-align:left;margin:6px 0;padding:10px 12px;border-radius:10px;border:1px solid #2d467f;background:#0f2147;color:#dcebff;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:8px}}
 nav button:hover{{background:#14306a;transform:translateY(-1px)}}
 nav button.active{{background:linear-gradient(180deg,#2951ad,#1a3d83);border-color:#7ba3ff}}
 main{{padding:14px;display:grid;gap:12px}}
+.top-ops{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+.top-ops input{{flex:1;min-width:320px;background:#081736;border:1px solid #3559a0;border-radius:10px;color:#d9e8ff;padding:10px;font-size:13px}}
+.quick-actions{{display:flex;gap:8px;flex-wrap:wrap}}
 .page{{display:none}} .page.active{{display:block}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
 .card{{background:linear-gradient(180deg,var(--panel),#0d1832);border:1px solid #2d467f;border-radius:14px;padding:12px;box-shadow:var(--glow)}}
@@ -489,7 +492,7 @@ main{{padding:14px;display:grid;gap:12px}}
 .badge{{padding:5px 10px;border-radius:999px;font-size:11px;font-weight:700}}
 .ok{{background:#143a25;color:#8bf0b0}} .warn{{background:#4f390e;color:#ffd88c}} .bad{{background:#511919;color:#ffafb3}}
 canvas{{width:100%;height:88px;background:linear-gradient(180deg,#132549,#0b1731);border:1px solid #2e4b8d;border-radius:10px}}
-pre{{white-space:pre-wrap;background:#071026;border:1px solid #2d467f;padding:10px;border-radius:10px;max-height:330px;overflow:auto}}
+.text-block{{white-space:pre-line;background:#071026;border:1px solid #2d467f;padding:10px;border-radius:10px;max-height:330px;overflow:auto;line-height:1.4}}
 .table{{width:100%;border-collapse:collapse;font-size:12px}}
 .table th,.table td{{border-bottom:1px solid #2a447d;padding:8px;text-align:left}}
 .table tr:hover{{background:#132a55;cursor:pointer}}
@@ -504,6 +507,11 @@ button.action:hover{{background:#2250a8}}
 .modal{{width:min(860px,92vw);max-height:86vh;overflow:auto;background:#0e1a34;border:1px solid #3a5ea9;border-radius:14px;padding:14px}}
 .modal h3{{margin-top:0}}
 .toast{{position:fixed;right:16px;bottom:16px;background:#123066;border:1px solid #4f79d5;padding:10px 12px;border-radius:10px;display:none;z-index:60}}
+.context{{border-left:1px solid var(--line);padding:14px 12px;background:linear-gradient(180deg,#081227,#09152d);display:grid;gap:12px;align-content:start}}
+.help-tip{{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:#4f3ca0;color:#ded6ff;font-size:11px;margin-left:6px;cursor:help}}
+.quick-logs{{position:fixed;left:0;right:0;bottom:0;padding:8px 14px;background:#040b18;border-top:1px solid #2a447d;display:flex;gap:10px;align-items:center;z-index:40}}
+.quick-logs .text-block{{margin:0;max-height:88px;flex:1}}
+@media (max-width:1400px){{.layout{{grid-template-columns:300px 1fr}} .context{{display:none}}}}
 @media (max-width:1180px){{.layout{{grid-template-columns:1fr}} nav{{border-right:none;border-bottom:1px solid var(--line)}} .inline{{grid-template-columns:1fr}}}}
 </style>
 </head>
@@ -517,26 +525,40 @@ button.action:hover{{background:#2250a8}}
 </header>
 <div class='layout'>
   <nav>
-    <div class='nav-head'>Módulos</div>
-    <button class='tab active' data-page='dashboard'>Dashboard táctico</button>
-    <button class='tab' data-page='server'>Estado servidor</button>
-    <button class='tab' data-page='connections'>Conexiones</button>
-    <button class='tab' data-page='logs'>Registros</button>
-    <button class='tab' data-page='playbooks'>Playbooks</button>
-    <button class='tab' data-page='advisor'>Asistente IA</button>
-    <button class='tab' data-page='mapa'>Mapa 3D ataques</button>
-    <button class='tab' data-page='services'>Servicios</button>
-    <button class='tab' data-page='settings'>Ajustes y comandos</button>
-    <button class='tab' data-page='conn-guard'>Guardia conexiones</button>
-    <button class='tab' data-page='incidents'>Incidentes</button>
+    <div class='nav-head'>Navegación SOC completa</div>
+    <button class='tab active' data-page='dashboard' title='Vista global, estado general y nivel de amenaza.'>🏠 Dashboard Principal</button>
+    <button class='tab' data-page='incidents' title='Incidentes activos, historial y escalamiento.'>🔥 Centro de Incidentes</button>
+    <button class='tab' data-page='services' title='Firewall, bloqueos dinámicos, DDoS y WAF.'>🛡️ Defensa Perimetral</button>
+    <button class='tab' data-page='connections' title='Detecciones, firmas y sensibilidad IDS/IPS.'>🕵️ IDS / IPS</button>
+    <button class='tab' data-page='advisor' title='Perfilado conductual, modelos activos y alertas predictivas.'>🧠 Motor IA y Anomalías</button>
+    <button class='tab' data-page='server' title='Hosts monitoreados, procesos e integridad endpoint.'>💻 Protección Endpoint (EDR)</button>
+    <button class='tab' data-page='playbooks' title='Playbooks, ejecución activa e historial SOAR.'>🔄 Respuesta Automatizada (SOAR)</button>
+    <button class='tab' data-page='logs' title='Eventos en tiempo real, auditoría y exportación forense.'>🗃️ Logs y Auditoría</button>
+    <button class='tab' data-page='mapa' title='Mapa de red, microsegmentación y flujo.'>🌐 Mapa de Red</button>
+    <button class='tab' data-page='settings' title='Usuarios, roles, MFA, sesiones y políticas IAM.'>🔑 Gestión de Identidad (IAM)</button>
+    <button class='tab' data-page='conn-guard' title='IOC, feeds externos y correlación global.'>📊 Inteligencia de Amenazas</button>
+    <button class='tab' data-page='settings' title='Parámetros, políticas, API e integraciones.'>⚙️ Configuración del Sistema</button>
+    <button class='tab' data-page='dashboard' title='Reportes automáticos, panel ejecutivo y métricas.'>📈 Reportes y Análisis</button>
+    <button class='tab' data-page='incidents' title='Simulación de ataque y entrenamiento SOC.'>🧪 Simulación y Entrenamiento</button>
+    <button class='tab' data-page='strategy' title='Mini tutoriales, glosario y explicación contextual.'>📘 Centro de Ayuda</button>
   </nav>
   <main>
+    <div class='card top-ops'>
+      <input id='queryBar' value='host:SRV01 AND severity:critical AND last:24h' title='Motor de búsqueda avanzado con filtros.'>
+      <div class='quick-actions'>
+        <button class='action' onclick="toast('Prevalidación: aislar host SRV01')">Aislar host</button>
+        <button class='action' onclick="toast('Prevalidación: bloquear IP 203.0.113.10')">Bloquear IP</button>
+        <button class='action' onclick="toast('Prevalidación: revocar credenciales')">Revocar credenciales</button>
+        <button class='action' onclick="toast('Prevalidación: activar monitoreo intensivo')">Monitoreo intensivo</button>
+        <button class='action' onclick="toast('Prevalidación: ejecutar playbook')">Ejecutar playbook</button>
+      </div>
+    </div>
     <section id='dashboard' class='page active'>
       <div class='grid'>
-        <div class='card'><div class='title'>CPU</div><div class='value' id='cpuV'>-</div><canvas id='cpuC'></canvas></div>
+        <div class='card'><div class='title'>CPU<span class='help-tip' title='Consumo actual del host en ventana de refresco.'>?</span></div><div class='value' id='cpuV'>-</div><canvas id='cpuC'></canvas></div>
         <div class='card'><div class='title'>Memoria</div><div class='value' id='memV'>-</div><canvas id='memC'></canvas></div>
         <div class='card'><div class='title'>Disco</div><div class='value' id='diskV'>-</div><canvas id='diskC'></canvas></div>
-        <div class='card'><div class='title'>Riesgo</div><div class='kpi' id='riskBadges'></div><div class='small' id='bootCode'></div></div>
+        <div class='card'><div class='title'>Riesgo global SOC<span class='help-tip' title='Combina severidad, exposición y hallazgos de hardening.'>?</span></div><div class='kpi' id='riskBadges'></div><div class='small' id='bootCode'></div></div>
       </div>
       <div class='inline'>
         <div class='card'>
@@ -548,51 +570,51 @@ button.action:hover{{background:#2250a8}}
           </div>
           <canvas id='sevC'></canvas>
         </div>
-        <div class='card'><h3>Resumen operacional</h3><pre id='opsSummary'></pre></div>
+        <div class='card'><h3>Resumen operacional</h3><div class='text-block' id='opsSummary'></div></div>
       </div>
     </section>
 
     <section id='server' class='page'>
       <div class='grid'>
-        <div class='card'><h3>Host</h3><pre id='hostBox'></pre></div>
-        <div class='card'><h3>Versiones</h3><pre id='versionsBox'></pre></div>
+        <div class='card'><h3>Host</h3><div class='text-block' id='hostBox'></div></div>
+        <div class='card'><h3>Versiones</h3><div class='text-block' id='versionsBox'></div></div>
       </div>
-      <div class='card'><h3>Firewall</h3><pre id='firewallBox'></pre></div>
+      <div class='card'><h3>Firewall</h3><div class='text-block' id='firewallBox'></div></div>
     </section>
 
     <section id='connections' class='page'>
       <div class='card'><h3>Conexiones en tiempo real</h3><table class='table' id='connTable'><thead><tr><th>Proto</th><th>Estado</th><th>Local</th><th>Puerto</th><th>Proceso</th></tr></thead><tbody></tbody></table></div>
-      <div class='card'><h3>Detalle</h3><pre id='connDetail'>Selecciona una conexión para analizar.</pre></div>
+      <div class='card'><h3>Detalle</h3><div class='text-block' id='connDetail'>Selecciona una conexión para analizar.</div></div>
     </section>
 
     <section id='logs' class='page'>
-      <div class='card'><h3>Eventos destacados</h3><pre id='logHighlighted'></pre></div>
+      <div class='card'><h3>Eventos destacados</h3><div class='text-block' id='logHighlighted'></div></div>
       <div class='grid'>
-        <div class='card'><h3>Raros</h3><pre id='logRare'></pre></div>
-        <div class='card'><h3>Peligrosos</h3><pre id='logDanger'></pre></div>
+        <div class='card'><h3>Raros</h3><div class='text-block' id='logRare'></div></div>
+        <div class='card'><h3>Peligrosos</h3><div class='text-block' id='logDanger'></div></div>
       </div>
     </section>
 
-    <section id='playbooks' class='page'><div class='card'><h3>Playbooks</h3><pre id='playbooksBox'></pre></div></section>
-    <section id='advisor' class='page'><div class='card'><h3>Asistente IA defensiva</h3><pre id='advisorBox'></pre></div></section>
+    <section id='playbooks' class='page'><div class='card'><h3>Playbooks</h3><div class='text-block' id='playbooksBox'></div></div></section>
+    <section id='advisor' class='page'><div class='card'><h3>Asistente IA defensiva</h3><div class='text-block' id='advisorBox'></div></div></section>
 
     <section id='mapa' class='page'>
       <div class='card'><h3>Mapa global 3D (esfera + silueta continental)</h3><canvas id='globeCanvas' style='height:380px'></canvas><div class='small'>Tip: usa las tablas para priorizar origenes/tipos más frecuentes.</div></div>
       <div class='grid'>
-        <div class='card'><h3>Top IPs</h3><pre id='mapTopIps'></pre></div>
-        <div class='card'><h3>Top tipos</h3><pre id='mapTopTypes'></pre></div>
+        <div class='card'><h3>Top IPs</h3><div class='text-block' id='mapTopIps'></div></div>
+        <div class='card'><h3>Top tipos</h3><div class='text-block' id='mapTopTypes'></div></div>
       </div>
     </section>
 
     <section id='services' class='page'>
       <div class='card'><h3>Servicios</h3><table class='table' id='svcTable'><thead><tr><th>Servicio</th><th>Estado</th><th>Acciones</th></tr></thead><tbody></tbody></table></div>
-      <div class='card'><h3>Resultado acción</h3><pre id='svcResult'></pre></div>
+      <div class='card'><h3>Resultado acción</h3><div class='text-block' id='svcResult'></div></div>
     </section>
 
     <section id='settings' class='page'>
       <div class='grid'>
-        <div class='card'><h3>Comandos defensivos</h3><pre id='cmdCatalog'></pre></div>
-        <div class='card'><h3>Versiones</h3><pre id='verCatalog'></pre></div>
+        <div class='card'><h3>Comandos defensivos</h3><div class='text-block' id='cmdCatalog'></div></div>
+        <div class='card'><h3>Versiones</h3><div class='text-block' id='verCatalog'></div></div>
       </div>
       <div class='card'>
         <h3>Terminal visual (ejecución segura)</h3>
@@ -610,17 +632,55 @@ button.action:hover{{background:#2250a8}}
 
     <section id='conn-guard' class='page'>
       <div class='grid'>
-        <div class='card'><h3>Resumen guardia</h3><pre id='guardSummary'></pre></div>
-        <div class='card'><h3>Acciones sugeridas</h3><pre id='guardActions'></pre></div>
+        <div class='card'><h3>Resumen guardia</h3><div class='text-block' id='guardSummary'></div></div>
+        <div class='card'><h3>Acciones sugeridas</h3><div class='text-block' id='guardActions'></div></div>
       </div>
-      <div class='card'><h3>Alertas</h3><pre id='guardAlerts'></pre></div>
+      <div class='card'><h3>Alertas</h3><div class='text-block' id='guardAlerts'></div></div>
     </section>
 
     <section id='incidents' class='page'>
-      <div class='card'><h3>Registro de incidentes</h3><pre id='incidentList'></pre></div>
-      <div class='card'><h3>Crear desde guardia</h3><button class='action' onclick='incidentFromGuard()'>Crear incidentes</button> <button class='action' onclick="openModal('incidentModal')">Ver ayuda rápida</button><pre id='incidentResult'></pre></div>
+      <div class='card'><h3>Registro de incidentes</h3><div class='text-block' id='incidentList'></div></div>
+      <div class='card'><h3>Crear desde guardia</h3><button class='action' onclick='incidentFromGuard()'>Crear incidentes</button> <button class='action' onclick="openModal('incidentModal')">Ver ayuda rápida</button><div class='text-block' id='incidentResult'></div></div>
+    </section>
+
+    <section id='strategy' class='page'>
+      <div class='card'><h3>Arquitectura UX/UI estratégica</h3><div class='text-block'>Arquitectura:
+1) Menú lateral fijo/colapsable
+2) Barra superior de estado + búsqueda query
+3) Área central modular con widgets SOC
+4) Panel contextual derecho con detalle/acciones
+5) Barra inferior de logs rápidos
+
+Flujo de navegación:
+Detección > análisis contextual > acción rápida > confirmación > auditoría automática.
+
+Wireframe textual:
+[Sidebar] [Topbar+Query] [Widgets KPI | Timeline | Alertas]
+[Mapa Red / IDS] [Panel contextual IA] [Quick logs]
+
+Guía visual:
+- Verde normal
+- Amarillo advertencia
+- Rojo crítico
+- Azul informativo
+- Morado IA
+
+Ayudas inteligentes:
+- Tooltips contextuales
+- Modo aprendizaje asistido
+- Indicador de impacto previo a acciones críticas.</div></div>
     </section>
   </main>
+  <aside class='context'>
+    <div class='card'><h3>Panel contextual</h3><div class='text-block' id='contextInfo'>Selecciona un módulo o evento para ver detalle ampliado.</div></div>
+    <div class='card'><h3>Historial asociado</h3><div class='text-block' id='contextHistory'>Sin selección activa.</div></div>
+    <div class='card'><h3>Recomendaciones IA</h3><div class='text-block' id='contextReco'>Modo aprendizaje asistido habilitado.</div></div>
+  </aside>
+</div>
+
+<div class='quick-logs'>
+  <div class='small'>Logs rápidos SOC</div>
+  <div class='text-block' id='quickLogBar'>Esperando eventos...</div>
 </div>
 
 <div class='modal-bg' id='incidentModal'>
@@ -637,6 +697,30 @@ const hist={{cpu:[],mem:[],disk:[]}}; const maxPts=70;
 function toast(msg){{const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; setTimeout(()=>t.style.display='none',2200);}}
 function openModal(id){{document.getElementById(id).style.display='flex';}}
 function closeModal(id){{document.getElementById(id).style.display='none';}}
+
+function toLines(items){{
+  return (items||[]).map((x)=>`• ${{x}}`).join('\\n') || 'Sin datos.';
+}}
+
+function linesFromPairs(pairs){{
+  return (pairs||[]).map(([k,v])=>`${{k}}: ${{v ?? '-'}}`).join('\\n');
+}}
+
+function serviceResultText(d){{
+  return linesFromPairs([
+    ['Resultado', d.ok ? 'Correcto' : 'Error'],
+    ['Acción aplicada', d.applied ? 'Sí' : 'No'],
+    ['Detalle', d.message || 'Sin detalle']
+  ]);
+}}
+
+function incidentResultText(d){{
+  return linesFromPairs([
+    ['Resultado', d.ok ? 'Correcto' : 'Error'],
+    ['Mensaje', d.message || 'Sin mensaje'],
+    ['Incidentes creados', d.created || 0]
+  ]);
+}}
 
 function drawSeries(id,arr,color){{
   const c=document.getElementById(id); const ctx=c.getContext('2d'); c.width=c.clientWidth; c.height=c.clientHeight; ctx.clearRect(0,0,c.width,c.height);
@@ -710,7 +794,7 @@ ${{d.output || d.message || ''}}`;
 async function incidentFromGuard(){{
   const r = await fetch('/api/incident-from-guard', {{method:'POST'}});
   const d = await r.json();
-  document.getElementById('incidentResult').textContent = JSON.stringify(d, null, 2);
+  document.getElementById('incidentResult').textContent = incidentResultText(d);
   toast('Incidentes actualizados');
   await refreshData();
 }}
@@ -718,7 +802,7 @@ async function incidentFromGuard(){{
 async function serviceAction(name, action){{
   const r = await fetch('/api/service-action?name='+encodeURIComponent(name)+'&action='+encodeURIComponent(action));
   const d = await r.json();
-  document.getElementById('svcResult').textContent = JSON.stringify(d, null, 2);
+  document.getElementById('svcResult').textContent = serviceResultText(d);
   toast('Acción de servicio completada');
   await refreshData();
 }}
@@ -742,33 +826,35 @@ async function refreshData(){{
   document.getElementById('connCount').textContent=String(d.connection_guard?.total_connections||0);
   drawSeverity(feed.summary?.severity||{{high:0,medium:0,low:0}});
 
-  document.getElementById('opsSummary').textContent=JSON.stringify({{
-    host:d.host,
-    firewall_ok:d.firewall?.ok,
-    services_count:(d.services||[]).length,
-    incidents_open:(d.incidents||[]).filter(x=>x.status==='open').length,
-    guard_counts:d.connection_guard?.counts||{{}}
-  }},null,2);
+  document.getElementById('opsSummary').textContent=linesFromPairs([
+    ['Host', d.host?.hostname || d.host?.fqdn || 'N/D'],
+    ['Firewall activo', d.firewall?.ok ? 'Sí' : 'No'],
+    ['Servicios monitoreados', (d.services||[]).length],
+    ['Incidentes abiertos', (d.incidents||[]).filter(x=>x.status==='open').length],
+    ['Conexiones altas', d.connection_guard?.counts?.high || 0]
+  ]);
 
-  document.getElementById('hostBox').textContent=JSON.stringify(d.host,null,2);
-  document.getElementById('versionsBox').textContent=JSON.stringify(d.versions,null,2);
-  document.getElementById('firewallBox').textContent=JSON.stringify(d.firewall,null,2);
+  document.getElementById('hostBox').textContent=linesFromPairs([['Hostname', d.host?.hostname || 'N/D'], ['SO', d.host?.os || 'N/D'], ['Kernel', d.host?.kernel || 'N/D'], ['IP principal', d.host?.primary_ip || 'N/D']]);
+  document.getElementById('versionsBox').textContent=Object.entries(d.versions||{{}}).map(([k,v])=>`• ${{k}}: ${{v}}`).join('\n') || 'Sin versiones detectadas.';
+  document.getElementById('firewallBox').textContent=linesFromPairs([['Motor', d.firewall?.engine || 'No detectado'], ['Estado', d.firewall?.ok ? 'Operativo' : 'Revisar'], ['Resumen', (d.firewall?.output||'Sin salida').slice(0,280)]]);
 
   const tbody=document.querySelector('#connTable tbody'); tbody.innerHTML='';
   (d.connections||[]).forEach(c=>{{
     const tr=document.createElement('tr');
     tr.innerHTML=`<td>${{c.proto||''}}</td><td>${{c.state||''}}</td><td>${{c.local||''}}</td><td>${{c.port||''}}</td><td>${{(c.process||'').slice(0,90)}}</td>`;
-    tr.onclick=()=>document.getElementById('connDetail').textContent=JSON.stringify(c,null,2);
+    tr.onclick=()=>document.getElementById('connDetail').textContent=linesFromPairs([['Protocolo',c.proto],['Estado',c.state],['Local',c.local],['Puerto',c.port],['Proceso',c.process]]);
     tbody.appendChild(tr);
   }});
 
-  document.getElementById('logHighlighted').textContent=JSON.stringify(d.logs?.highlighted||[],null,2);
-  document.getElementById('logRare').textContent=JSON.stringify(d.logs?.rare||[],null,2);
-  document.getElementById('logDanger').textContent=JSON.stringify(d.logs?.dangerous||[],null,2);
-  document.getElementById('playbooksBox').textContent=JSON.stringify(d.playbooks||{{}},null,2);
-  document.getElementById('advisorBox').textContent=JSON.stringify(d.advisor||{{}},null,2);
-  document.getElementById('mapTopIps').textContent=JSON.stringify(feed.tables?.top_source_ips||[],null,2);
-  document.getElementById('mapTopTypes').textContent=JSON.stringify(feed.tables?.top_attack_types||[],null,2);
+  document.getElementById('logHighlighted').textContent=toLines(d.logs?.highlighted||[]);
+  document.getElementById('logRare').textContent=toLines(d.logs?.rare||[]);
+  document.getElementById('logDanger').textContent=toLines(d.logs?.dangerous||[]);
+  document.getElementById('playbooksBox').textContent=Object.entries(d.playbooks||{{}}).map(([k,v])=>`• ${{k}}
+  - Objetivo: ${{v.description||'N/D'}}
+  - Comandos: ${{(v.commands||[]).join(', ')}}`).join('\n\n') || 'Sin playbooks.';
+  document.getElementById('advisorBox').textContent=toLines(d.advisor?.recommended_actions||[]);
+  document.getElementById('mapTopIps').textContent=(feed.tables?.top_source_ips||[]).map((x)=>`• ${{x.ip}}: ${{x.count}} eventos`).join('\n') || 'Sin IPs relevantes.';
+  document.getElementById('mapTopTypes').textContent=(feed.tables?.top_attack_types||[]).map((x)=>`• ${{x.type}}: ${{x.count}}`).join('\n') || 'Sin tipos relevantes.';
   renderGlobe(feed);
 
   const svcBody=document.querySelector('#svcTable tbody'); svcBody.innerHTML='';
@@ -778,22 +864,35 @@ async function refreshData(){{
     svcBody.appendChild(tr);
   }});
 
-  document.getElementById('cmdCatalog').textContent=JSON.stringify(d.command_catalog||{{}},null,2);
-  document.getElementById('verCatalog').textContent=JSON.stringify(d.versions||{{}},null,2);
+  document.getElementById('cmdCatalog').textContent=toLines(d.command_catalog?.safe_defense||[]);
+  document.getElementById('verCatalog').textContent=Object.entries(d.versions||{{}}).map(([k,v])=>`• ${{k}}: ${{v}}`).join('\n') || 'Sin datos.';
   const g=d.connection_guard||{{}};
-  document.getElementById('guardSummary').textContent=JSON.stringify({{mode:g.mode,total_connections:g.total_connections,counts:g.counts,baseline_samples:g.baseline_samples}},null,2);
-  document.getElementById('guardAlerts').textContent=JSON.stringify(g.alerts||[],null,2);
-  document.getElementById('guardActions').textContent=JSON.stringify(g.auto_actions||[],null,2);
-  document.getElementById('incidentList').textContent=JSON.stringify(d.incidents||[],null,2);
+  document.getElementById('guardSummary').textContent=linesFromPairs([['Modo',g.mode||'N/D'],['Conexiones totales',g.total_connections||0],['Nivel alto',g.counts?.high||0],['Muestras baseline',g.baseline_samples||0]]);
+  document.getElementById('guardAlerts').textContent=toLines((g.alerts||[]).map((x)=>x.message || x.type || 'Alerta'));
+  document.getElementById('guardActions').textContent=toLines((g.auto_actions||[]).map((x)=>x.description || x.action || 'Acción recomendada'));
+  document.getElementById('incidentList').textContent=toLines((d.incidents||[]).map((x)=>`${{x.id||'INC'}} | ${{x.status||'open'}} | ${{x.title||x.type||'Incidente'}}`));
+  document.getElementById('quickLogBar').textContent=toLines((d.logs?.highlighted||[]).slice(-5));
+  document.getElementById('contextInfo').textContent=linesFromPairs([['Host', d.host?.hostname || 'N/D'], ['Riesgo alto', summary.high||0], ['Riesgo medio', summary.medium||0], ['Eventos', feed.summary?.total_events||0]]);
+  document.getElementById('contextHistory').textContent=toLines((d.incidents||[]).slice(-5).map((x)=>`${{x.id||'INC'}} - ${{x.status||'open'}}`));
+  document.getElementById('contextReco').textContent=toLines(d.advisor?.recommended_actions||[]);
 }}
 
 for (const b of document.querySelectorAll('.tab')){{
   b.addEventListener('click', ()=>{{
     document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active')); b.classList.add('active');
     document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
-    document.getElementById(b.dataset.page).classList.add('active');
+    const page=document.getElementById(b.dataset.page);
+    if(page) page.classList.add('active');
+    document.getElementById('contextInfo').textContent=linesFromPairs([['Módulo', b.textContent.trim()], ['Descripción', b.title || 'Sin detalle'], ['Hora', new Date().toISOString()]]);
   }});
 }}
+
+document.getElementById('queryBar').addEventListener('keydown', (e)=>{{
+  if(e.key==='Enter'){{
+    toast('Consulta aplicada: '+e.target.value);
+    document.getElementById('contextReco').textContent=toLines(['Autocompletado inteligente activo','Sugerencia: severity:high AND blocked:false','Historial de consultas disponible']);
+  }}
+}});
 
 window.addEventListener('click', (e)=>{{ if(e.target.classList.contains('modal-bg')) e.target.style.display='none'; }});
 refreshData(); setInterval(refreshData, {refresh_seconds}*1000);
