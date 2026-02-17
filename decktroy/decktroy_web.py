@@ -472,16 +472,16 @@ header{{padding:16px 22px;border-bottom:1px solid var(--line);background:linear-
 .brand h1{{margin:0;font-size:20px;letter-spacing:1px;text-transform:uppercase}}
 .sub{{color:var(--muted);font-size:12px;margin-top:4px}}
 .pill{{padding:8px 12px;border-radius:999px;background:#132a55;border:1px solid #3b5da8;font-size:12px}}
-.layout{{display:grid;grid-template-columns:300px 1fr 320px;min-height:calc(100vh - 78px);padding-bottom:54px}}
-nav{{border-right:1px solid var(--line);background:linear-gradient(180deg,#071632,#04122a);padding:12px;overflow:auto}}
+.layout{{display:grid;grid-template-columns:300px 1fr 320px;min-height:calc(100vh - 78px)}}
+nav{{border-right:1px solid var(--line);background:linear-gradient(180deg,#09132a,#081126);padding:12px;overflow:auto}}
 .nav-head{{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin:8px 4px}}
 nav button{{width:100%;text-align:left;margin:6px 0;padding:10px 12px;border-radius:10px;border:1px solid #2d467f;background:#0f2147;color:#dcebff;cursor:pointer;transition:.2s;display:flex;align-items:center;gap:8px}}
 nav button:hover{{background:#14306a;transform:translateY(-1px)}}
 nav button.active{{background:linear-gradient(180deg,#2951ad,#1a3d83);border-color:#7ba3ff}}
-main{{padding:14px;display:grid;gap:12px;align-content:start}}
-.top-ops{{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;min-height:300px;padding-bottom:16px}}
-.top-ops input{{flex:1;min-width:320px;background:#04153a;border:1px solid #2f63b8;border-radius:10px;color:#d9e8ff;padding:10px;font-size:13px}}
-.quick-actions{{display:flex;gap:8px;flex-wrap:wrap;align-items:center}}
+main{{padding:14px;display:grid;gap:12px}}
+.top-ops{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+.top-ops input{{flex:1;min-width:320px;background:#081736;border:1px solid #3559a0;border-radius:10px;color:#d9e8ff;padding:10px;font-size:13px}}
+.quick-actions{{display:flex;gap:8px;flex-wrap:wrap}}
 .page{{display:none}} .page.active{{display:block}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
 .card{{background:linear-gradient(180deg,#0b1e49,#0a1a40);border:1px solid #2f63b8;border-radius:16px;padding:12px;box-shadow:0 0 0 1px rgba(37,92,185,.25) inset,0 18px 28px rgba(0,0,0,.35)}}
@@ -507,9 +507,9 @@ button.action:hover{{background:#2250a8}}
 .modal{{width:min(860px,92vw);max-height:86vh;overflow:auto;background:#0e1a34;border:1px solid #3a5ea9;border-radius:14px;padding:14px}}
 .modal h3{{margin-top:0}}
 .toast{{position:fixed;right:16px;bottom:16px;background:#123066;border:1px solid #4f79d5;padding:10px 12px;border-radius:10px;display:none;z-index:60}}
-.context{{border-left:1px solid var(--line);padding:14px 12px;background:linear-gradient(180deg,#061530,#051126);display:grid;gap:12px;align-content:start}}
+.context{{border-left:1px solid var(--line);padding:14px 12px;background:linear-gradient(180deg,#081227,#09152d);display:grid;gap:12px;align-content:start}}
 .help-tip{{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;background:#4f3ca0;color:#ded6ff;font-size:11px;margin-left:6px;cursor:help}}
-.quick-logs{{position:fixed;left:0;right:0;bottom:0;padding:8px 14px;background:#030f27;border-top:1px solid #2a447d;display:flex;gap:10px;align-items:center;z-index:40}}
+.quick-logs{{position:fixed;left:0;right:0;bottom:0;padding:8px 14px;background:#040b18;border-top:1px solid #2a447d;display:flex;gap:10px;align-items:center;z-index:40}}
 .quick-logs .text-block{{margin:0;max-height:88px;flex:1}}
 @media (max-width:1400px){{.layout{{grid-template-columns:300px 1fr}} .context{{display:none}}}}
 @media (max-width:1180px){{.layout{{grid-template-columns:1fr}} nav{{border-right:none;border-bottom:1px solid var(--line)}} .inline{{grid-template-columns:1fr}}}}
@@ -554,7 +554,7 @@ button.action:hover{{background:#2250a8}}
       </div>
     </div>
     <section id='dashboard' class='page active'>
-      <div class='grid' style='grid-template-columns:repeat(4,minmax(180px,1fr));'>
+      <div class='grid'>
         <div class='card'><div class='title'>CPU<span class='help-tip' title='Consumo actual del host en ventana de refresco.'>?</span></div><div class='value' id='cpuV'>-</div><canvas id='cpuC'></canvas></div>
         <div class='card'><div class='title'>Memoria</div><div class='value' id='memV'>-</div><canvas id='memC'></canvas></div>
         <div class='card'><div class='title'>Disco</div><div class='value' id='diskV'>-</div><canvas id='diskC'></canvas></div>
