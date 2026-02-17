@@ -467,7 +467,7 @@ def _html(refresh_seconds: int) -> str:
 <style>
 :root{{--bg:#040812;--bg2:#0b1428;--panel:#101b35;--panel2:#17284e;--text:#e7eeff;--muted:#9cb2e8;--ok:#22c55e;--warn:#f59e0b;--bad:#ef4444;--accent:#5a8cff;--line:#2a3f73;--glow:0 0 0 1px #2b4a8d inset,0 14px 28px rgba(0,0,0,.35)}}
 *{{box-sizing:border-box}}
-body{{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:radial-gradient(circle at 12% -20%,#243c77 0,#0d1630 35%,#040812 85%);color:var(--text)}}
+body{{margin:0;font-family:Inter,Segoe UI,Arial,sans-serif;background:radial-gradient(circle at 14% -25%,#223f86 0,#0a1b42 32%,#010b22 78%,#010816 100%);color:var(--text)}}
 header{{padding:16px 22px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,#13244b,#0b1630);position:sticky;top:0;z-index:30;display:flex;justify-content:space-between;align-items:center;gap:14px}}
 .brand h1{{margin:0;font-size:20px;letter-spacing:1px;text-transform:uppercase}}
 .sub{{color:var(--muted);font-size:12px;margin-top:4px}}
@@ -484,7 +484,7 @@ main{{padding:14px;display:grid;gap:12px}}
 .quick-actions{{display:flex;gap:8px;flex-wrap:wrap}}
 .page{{display:none}} .page.active{{display:block}}
 .grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}}
-.card{{background:linear-gradient(180deg,var(--panel),#0d1832);border:1px solid #2d467f;border-radius:14px;padding:12px;box-shadow:var(--glow)}}
+.card{{background:linear-gradient(180deg,#0b1e49,#0a1a40);border:1px solid #2f63b8;border-radius:16px;padding:12px;box-shadow:0 0 0 1px rgba(37,92,185,.25) inset,0 18px 28px rgba(0,0,0,.35)}}
 .title{{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.7px}}
 .value{{font-size:29px;font-weight:700;margin:6px 0 2px}}
 .small{{font-size:12px;color:var(--muted)}}
@@ -500,7 +500,7 @@ canvas{{width:100%;height:88px;background:linear-gradient(180deg,#132549,#0b1731
 .mini-kpi{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
 .mini{{padding:10px;border-radius:10px;background:#0d1d3d;border:1px solid #314f8f}}
 .mini .n{{font-size:23px;font-weight:700}}
-button.action{{border:1px solid #446ec3;background:#183a7c;color:#e4eeff;padding:7px 10px;border-radius:8px;cursor:pointer}}
+button.action{{border:1px solid #4f82d3;background:#1b3f86;color:#e4eeff;padding:7px 12px;border-radius:10px;cursor:pointer}}
 button.action:hover{{background:#2250a8}}
 .terminal{{background:#03080f;border:1px solid #355ca8;border-radius:10px;padding:10px;color:#9ef29e;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;min-height:180px;max-height:360px;overflow:auto}}
 .modal-bg{{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;align-items:center;justify-content:center;z-index:50}}
@@ -560,7 +560,7 @@ button.action:hover{{background:#2250a8}}
         <div class='card'><div class='title'>Disco</div><div class='value' id='diskV'>-</div><canvas id='diskC'></canvas></div>
         <div class='card'><div class='title'>Riesgo global SOC<span class='help-tip' title='Combina severidad, exposición y hallazgos de hardening.'>?</span></div><div class='kpi' id='riskBadges'></div><div class='small' id='bootCode'></div></div>
       </div>
-      <div class='inline'>
+      <div class='inline' style='grid-template-columns:1.2fr 1fr;'>
         <div class='card'>
           <h3>Resumen de amenazas</h3>
           <div class='mini-kpi'>
