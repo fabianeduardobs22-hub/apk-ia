@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SENTINEL-X Enterprise</title>
+  <link rel="stylesheet" href="/static/css/premium.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <h1>SENTINEL-X</h1>
+      <p>Enterprise Control Center</p>
+      <div class="badge">LIVE</div>
+      <ul>
+        <li>Global Overview</li>
+        <li>Threat Map</li>
+        <li>Audit Chain</li>
+        <li>Predictive AI</li>
+      </ul>
+    </aside>
+    <main class="content">
+      <header>
+        <h2>Premium Security Operations Platform</h2>
+        <span>Server Time: {{ now }}</span>
+      </header>
+      <section class="grid">
+        <article class="card globe-card">
+          <h3>Global Threat Globe</h3>
+          <div id="globe"></div>
+        </article>
+        <article class="card">
+          <h3>Realtime Alerts</h3>
+          <div id="alerts"></div>
+          <button id="testAlert">Send Test Alert</button>
+        </article>
+        <article class="card">
+          <h3>Predictive AI</h3>
+          <button id="predictBtn">Run Prediction</button>
+          <pre id="predictionResult"></pre>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="https://unpkg.com/three@0.157.0/build/three.min.js"></script>
+  <script src="/static/js/dashboard.js"></script>
+</body>
+</html>
